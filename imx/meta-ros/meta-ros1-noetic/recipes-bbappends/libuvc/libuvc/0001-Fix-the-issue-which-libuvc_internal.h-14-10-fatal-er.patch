@@ -1,0 +1,43 @@
+From 85e6fe097e5f61db4ba11bb796ae554bba51666b Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Mon, 20 Feb 2023 14:36:55 +0800
+Subject: [PATCH] Fix the issue which libuvc_internal.h:14:10: fatal error:
+ libusb.h: No such file or directory and modify CONF_LIBRARY
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt                   | 4 ++--
+ include/libuvc/libuvc_internal.h | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a19209d..8c6489b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -120,8 +120,8 @@ export(TARGETS ${UVC_TARGETS}
+ export(PACKAGE libuvc)
+ 
+ set(CONF_INCLUDE_DIR "${CMAKE_INSTALL_PREFIX}/include")
+-set(CONF_LIBRARY_DIR "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}")
+-set(CONF_LIBRARY "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/${CMAKE_SHARED_LIBRARY_PREFIX}uvc${CMAKE_SHARED_LIBRARY_SUFFIX}")
++set(CONF_LIBRARY_DIR "${CMAKE_INSTALL_PREFIX}/lib")
++set(CONF_LIBRARY "${CMAKE_INSTALL_PREFIX}/lib/${CMAKE_SHARED_LIBRARY_PREFIX}uvc${CMAKE_SHARED_LIBRARY_SUFFIX}")
+ 
+ configure_file(libuvcConfig.cmake.in ${PROJECT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/libuvcConfig.cmake)
+ 
+diff --git a/include/libuvc/libuvc_internal.h b/include/libuvc/libuvc_internal.h
+index 829b294..88ca418 100644
+--- a/include/libuvc/libuvc_internal.h
++++ b/include/libuvc/libuvc_internal.h
+@@ -11,7 +11,7 @@
+ #include <string.h>
+ #include <pthread.h>
+ #include <signal.h>
+-#include <libusb.h>
++#include <libusb-1.0/libusb.h>
+ #include "utlist.h"
+ 
+ /** Converts an unaligned four-byte little-endian integer into an int32 */
+-- 
+2.35.1
+

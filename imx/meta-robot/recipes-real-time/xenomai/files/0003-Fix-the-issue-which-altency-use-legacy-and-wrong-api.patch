@@ -1,0 +1,66 @@
+From aa2f9394c4347250d4c03a3f713d52eeb9d48852 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Thu, 4 Nov 2021 17:15:31 +0800
+Subject: [PATCH 3/5] Fix the issue which altency use legacy and wrong api to
+ get time
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ demo/alchemy/altency.c      | 15 ++++++++++++---
+ testsuite/latency/latency.c |  2 ++
+ 2 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/demo/alchemy/altency.c b/demo/alchemy/altency.c
+index e7c31d7c1..6caa68efa 100644
+--- a/demo/alchemy/altency.c
++++ b/demo/alchemy/altency.c
+@@ -80,10 +80,14 @@ static void latency(void *cookie)
+ 	int ret, count, nsamples, warmup = 1;
+ 	int32_t minj, maxj, dt, overrun, sumj;
+ 	unsigned long ov;
++	struct timespec expected;
+ 
+ 	fault_threshold = CONFIG_XENO_DEFAULT_PERIOD;
+ 	nsamples = (long long)ONE_BILLION / period_ns;
+-	start_ns = rt_timer_read() + 1000000; /* 1ms from now */
++	
++	clock_gettime(CLOCK_MONOTONIC, &expected);
++	start_ns = expected.tv_sec * ONE_BILLION + expected.tv_nsec + 1000000;
++	
+ 	expected_ns = start_ns;
+ 
+ 	ret = rt_task_set_periodic(NULL, start_ns, period_ns);
+@@ -98,10 +102,15 @@ static void latency(void *cookie)
+ 		maxj = -TEN_MILLIONS;
+ 		overrun = 0;
+ 		test_loops++;
++		struct timespec now;
+ 
+ 		for (count = sumj = 0; count < nsamples; count++) {
+-			ret = rt_task_wait_period(&ov);
+-			dt = (int32_t)(rt_timer_read() - expected_ns);
++			ret = rt_task_wait_period(&ov);			
++			clock_gettime(CLOCK_MONOTONIC, &now);
++			dt = now.tv_sec * ONE_BILLION + now.tv_nsec - expected_ns;
++			if (dt < 0)
++				dt = 0;
++			
+ 			new_relaxed = sampling_relaxed;
+ 			if (dt > maxj) {
+ 				if (new_relaxed != old_relaxed
+diff --git a/testsuite/latency/latency.c b/testsuite/latency/latency.c
+index 6cd3a28b4..917c94b72 100644
+--- a/testsuite/latency/latency.c
++++ b/testsuite/latency/latency.c
+@@ -166,6 +166,8 @@ static void *latency(void *cookie)
+ 
+ 			clock_gettime(CLOCK_MONOTONIC, &now);
+ 			dt = (int32_t)diff_ts(&now, &expected);
++			if (dt < 0)
++				dt = 0;
+ 			new_relaxed = sampling_relaxed;
+ 			if (dt > maxj) {
+ 				if (new_relaxed != old_relaxed
+-- 
+2.35.1
+

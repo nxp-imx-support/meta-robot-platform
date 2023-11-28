@@ -1,0 +1,40 @@
+From 47f60cfa34b821fe7cfc6d7744cbb2ee28c54361 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 18 Apr 2023 10:52:58 +0800
+Subject: [PATCH 2/2] CMakeLists.txt: use platform libyaml when available
+ instead of ExternalProject
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 76ac4ca..5ac0c33 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -87,11 +87,18 @@ macro(build_libyaml)
+   set(yaml_LIBRARIES yaml)
+ endmacro()
+ 
+-build_libyaml()
+-set(extra_test_dependencies libyaml-0.2.5)
++find_package(PkgConfig REQUIRED)
++pkg_check_modules(YAML REQUIRED yaml-0.1)
++
++if(YAML_FOUND)
++  message(STATUS "Found yaml ${YAML_VERSION}")
++else()
++  message(FATAL_ERROR "yaml not found -- missing from DEPENDS?")
++  # eventually we can build one with ExternalProjectAdd
++  # build_libyaml()
++endif()
+ 
+ ament_export_libraries(yaml)
+-ament_export_dependencies(yaml)
+ 
+ if(BUILD_TESTING)
+   find_package(ament_lint_auto REQUIRED)
+-- 
+2.35.1
+

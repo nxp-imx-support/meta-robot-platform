@@ -1,0 +1,265 @@
+From aa07095baa90164d4ebbd92d73832a8c5e746201 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 1 Sep 2023 10:30:09 +0800
+Subject: [PATCH] Add 250ms delay in odometry
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ ...onlinearanalyticconditionalgaussianodo.cpp |  4 +-
+ src/odom_estimation.cpp                       | 62 +++++++++----------
+ src/odom_estimation_node.cpp                  | 59 +++++++++++-------
+ 3 files changed, 68 insertions(+), 57 deletions(-)
+
+diff --git a/src/nonlinearanalyticconditionalgaussianodo.cpp b/src/nonlinearanalyticconditionalgaussianodo.cpp
+index c0d052b..a179e3f 100644
+--- a/src/nonlinearanalyticconditionalgaussianodo.cpp
++++ b/src/nonlinearanalyticconditionalgaussianodo.cpp
+@@ -57,8 +57,8 @@ namespace BFL
+ 	double vel_trans = ConditionalArgumentGet(1)(1);
+ 	double yaw = ConditionalArgumentGet(0)(6);
+ 
+-	df(1,3)=-vel_trans*sin(yaw); 
+-	df(2,3)= vel_trans*cos(yaw);
++	df(1,3) = -vel_trans*sin(yaw); 
++	df(2,3) = vel_trans*cos(yaw);
+ 
+ 	return df;
+       }
+diff --git a/src/odom_estimation.cpp b/src/odom_estimation.cpp
+index 388095e..02e7d74 100644
+--- a/src/odom_estimation.cpp
++++ b/src/odom_estimation.cpp
+@@ -191,23 +191,23 @@ namespace estimation
+       }
+       transformer_.lookupTransform("wheelodom", base_footprint_frame_, filter_time, odom_meas_);
+       if (odom_initialized_){
+-	// convert absolute odom measurements to relative odom measurements in horizontal plane
+-	Transform odom_rel_frame =  Transform(tf::createQuaternionFromYaw(filter_estimate_old_vec_(6)), 
+-					      filter_estimate_old_.getOrigin()) * odom_meas_old_.inverse() * odom_meas_;
+-	ColumnVector odom_rel(6); 
+-	decomposeTransform(odom_rel_frame, odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
+-	angleOverflowCorrect(odom_rel(6), filter_estimate_old_vec_(6));
+-	// update filter
+-	odom_meas_pdf_->AdditiveNoiseSigmaSet(odom_covariance_ * pow(dt,2));
++        // convert absolute odom measurements to relative odom measurements in horizontal plane
++        Transform odom_rel_frame =  Transform(tf::createQuaternionFromYaw(filter_estimate_old_vec_(6)), 
++        				      filter_estimate_old_.getOrigin()) * odom_meas_old_.inverse() * odom_meas_;
++        ColumnVector odom_rel(6); 
++        decomposeTransform(odom_rel_frame, odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
++        angleOverflowCorrect(odom_rel(6), filter_estimate_old_vec_(6));
++        // update filter
++        odom_meas_pdf_->AdditiveNoiseSigmaSet(odom_covariance_ * pow(dt,2));
+ 
+         ROS_DEBUG("Update filter with odom measurement %f %f %f %f %f %f", 
+                   odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
+-	filter_->Update(odom_meas_model_, odom_rel);
+-	diagnostics_odom_rot_rel_ = odom_rel(6);
++        filter_->Update(odom_meas_model_, odom_rel);
++        diagnostics_odom_rot_rel_ = odom_rel(6);
+       }
+       else{
+-	odom_initialized_ = true;
+-	diagnostics_odom_rot_rel_ = 0;
++        odom_initialized_ = true;
++        diagnostics_odom_rot_rel_ = 0;
+       }
+       odom_meas_old_ = odom_meas_;
+     }
+@@ -224,20 +224,20 @@ namespace estimation
+       }
+       transformer_.lookupTransform("imu", base_footprint_frame_, filter_time, imu_meas_);
+       if (imu_initialized_){
+-	// convert absolute imu yaw measurement to relative imu yaw measurement 
+-	Transform imu_rel_frame =  filter_estimate_old_ * imu_meas_old_.inverse() * imu_meas_;
+-	ColumnVector imu_rel(3); double tmp;
+-	decomposeTransform(imu_rel_frame, tmp, tmp, tmp, tmp, tmp, imu_rel(3));
+-	decomposeTransform(imu_meas_,     tmp, tmp, tmp, imu_rel(1), imu_rel(2), tmp);
+-	angleOverflowCorrect(imu_rel(3), filter_estimate_old_vec_(6));
+-	diagnostics_imu_rot_rel_ = imu_rel(3);
+-	// update filter
+-	imu_meas_pdf_->AdditiveNoiseSigmaSet(imu_covariance_ * pow(dt,2));
+-	filter_->Update(imu_meas_model_,  imu_rel);
++        // convert absolute imu yaw measurement to relative imu yaw measurement 
++        Transform imu_rel_frame =  filter_estimate_old_ * imu_meas_old_.inverse() * imu_meas_;
++        ColumnVector imu_rel(3); double tmp;
++        decomposeTransform(imu_rel_frame, tmp, tmp, tmp, tmp, tmp, imu_rel(3));
++        decomposeTransform(imu_meas_,     tmp, tmp, tmp, imu_rel(1), imu_rel(2), tmp);
++        angleOverflowCorrect(imu_rel(3), filter_estimate_old_vec_(6));
++        diagnostics_imu_rot_rel_ = imu_rel(3);
++        // update filter
++        imu_meas_pdf_->AdditiveNoiseSigmaSet(imu_covariance_ * pow(dt,2));
++        filter_->Update(imu_meas_model_,  imu_rel);
+       }
+       else{
+-	imu_initialized_ = true;
+-	diagnostics_imu_rot_rel_ = 0;
++        imu_initialized_ = true;
++        diagnostics_imu_rot_rel_ = 0;
+       }
+       imu_meas_old_ = imu_meas_; 
+     }
+@@ -255,17 +255,17 @@ namespace estimation
+       }
+       transformer_.lookupTransform("vo", base_footprint_frame_, filter_time, vo_meas_);
+       if (vo_initialized_){
+-	// convert absolute vo measurements to relative vo measurements
+-	Transform vo_rel_frame =  filter_estimate_old_ * vo_meas_old_.inverse() * vo_meas_;
+-	ColumnVector vo_rel(6);
+-	decomposeTransform(vo_rel_frame, vo_rel(1),  vo_rel(2), vo_rel(3), vo_rel(4), vo_rel(5), vo_rel(6));
+-	angleOverflowCorrect(vo_rel(6), filter_estimate_old_vec_(6));
+-	// update filter
++        // convert absolute vo measurements to relative vo measurements
++        Transform vo_rel_frame =  filter_estimate_old_ * vo_meas_old_.inverse() * vo_meas_;
++        ColumnVector vo_rel(6);
++        decomposeTransform(vo_rel_frame, vo_rel(1),  vo_rel(2), vo_rel(3), vo_rel(4), vo_rel(5), vo_rel(6));
++        angleOverflowCorrect(vo_rel(6), filter_estimate_old_vec_(6));
++        // update filter
+         vo_meas_pdf_->AdditiveNoiseSigmaSet(vo_covariance_ * pow(dt,2));
+         filter_->Update(vo_meas_model_,  vo_rel);
+       }
+       else vo_initialized_ = true;
+-      vo_meas_old_ = vo_meas_;
++          vo_meas_old_ = vo_meas_;
+     }
+     // sensor not active
+     else vo_initialized_ = false;
+diff --git a/src/odom_estimation_node.cpp b/src/odom_estimation_node.cpp
+index dc9eb90..fc6fdea 100644
+--- a/src/odom_estimation_node.cpp
++++ b/src/odom_estimation_node.cpp
+@@ -192,14 +192,14 @@ namespace estimation
+     // activate odom
+     if (!odom_active_) {
+       if (!odom_initializing_){
+-	odom_initializing_ = true;
+-	odom_init_stamp_ = odom_stamp_;
+-	ROS_INFO("Initializing Odom sensor");      
++        odom_initializing_ = true;
++        odom_init_stamp_ = odom_stamp_;
++        ROS_INFO("Initializing Odom sensor");      
+       }
+       if ( filter_stamp_ >= odom_init_stamp_){
+-	odom_active_ = true;
+-	odom_initializing_ = false;
+-	ROS_INFO("Odom sensor activated");      
++        odom_active_ = true;
++        odom_initializing_ = false;
++        ROS_INFO("Odom sensor activated");      
+       }
+       else ROS_DEBUG("Waiting to activate Odom, because Odom measurements are still %f sec in the future.", 
+ 		    (odom_init_stamp_ - filter_stamp_).toSec());
+@@ -228,8 +228,8 @@ namespace estimation
+     tf::Quaternion orientation;
+     quaternionMsgToTF(imu->orientation, orientation);
+     imu_meas_ = tf::Transform(orientation, tf::Vector3(0,0,0));
+-    for (unsigned int i=0; i<3; i++)
+-      for (unsigned int j=0; j<3; j++)
++    for (unsigned int i = 0; i < 3; i++)
++      for (unsigned int j = 0; j < 3; j++)
+         imu_covariance_(i+1, j+1) = imu->orientation_covariance[3*i+j];
+ 
+     // Transforms imu data to base_footprint frame
+@@ -250,7 +250,7 @@ namespace estimation
+     imu_time_  = Time::now();
+ 
+     // manually set covariance untile imu sends covariance
+-    if (imu_covariance_(1,1) == 0.0){
++    if (imu_covariance_(1,1) == 0.0 || imu_covariance_(2,2) == 0.0 || imu_covariance_(3,3) == 0.0){
+       SymmetricMatrix measNoiseImu_Cov(3);  measNoiseImu_Cov = 0;
+       measNoiseImu_Cov(1,1) = pow(0.00017,2);  // = 0.01 degrees / sec
+       measNoiseImu_Cov(2,2) = pow(0.00017,2);  // = 0.01 degrees / sec
+@@ -263,14 +263,14 @@ namespace estimation
+     // activate imu
+     if (!imu_active_) {
+       if (!imu_initializing_){
+-	imu_initializing_ = true;
+-	imu_init_stamp_ = imu_stamp_;
+-	ROS_INFO("Initializing Imu sensor");      
++	    imu_initializing_ = true;
++	    imu_init_stamp_ = imu_stamp_;
++	    ROS_INFO("Initializing Imu sensor");      
+       }
+       if ( filter_stamp_ >= imu_init_stamp_){
+-	imu_active_ = true;
+-	imu_initializing_ = false;
+-	ROS_INFO("Imu sensor activated");      
++	    imu_active_ = true;
++	    imu_initializing_ = false;
++	    ROS_INFO("Imu sensor activated");      
+       }
+       else ROS_DEBUG("Waiting to activate IMU, because IMU measurements are still %f sec in the future.", 
+ 		    (imu_init_stamp_ - filter_stamp_).toSec());
+@@ -306,14 +306,14 @@ namespace estimation
+     // activate vo
+     if (!vo_active_) {
+       if (!vo_initializing_){
+-	vo_initializing_ = true;
+-	vo_init_stamp_ = vo_stamp_;
+-	ROS_INFO("Initializing Vo sensor");      
++    	vo_initializing_ = true;
++    	vo_init_stamp_ = vo_stamp_;
++    	ROS_INFO("Initializing Vo sensor");      
+       }
+       if (filter_stamp_ >= vo_init_stamp_){
+-	vo_active_ = true;
+-	vo_initializing_ = false;
+-	ROS_INFO("Vo sensor activated");      
++    	vo_active_ = true;
++    	vo_initializing_ = false;
++    	ROS_INFO("Vo sensor activated");      
+       }
+       else ROS_DEBUG("Waiting to activate VO, because VO measurements are still %f sec in the future.", 
+ 		    (vo_init_stamp_ - filter_stamp_).toSec());
+@@ -431,6 +431,16 @@ namespace estimation
+           
+           // output most recent estimate and relative covariance
+           my_filter_.getEstimate(output_);
++          /* Add 250ms delay in odometry*/
++  #define DELAY_TIME  250000000
++          if (DELAY_TIME + output_.header.stamp.nsec >= 1000000000)
++          {
++            output_.header.stamp.sec += 1;
++            output_.header.stamp.nsec = (DELAY_TIME + output_.header.stamp.nsec) - 1000000000;
++          }
++          else
++            output_.header.stamp.nsec += DELAY_TIME;
++            
+           pose_pub_.publish(output_);
+           ekf_sent_counter_++;
+           
+@@ -439,6 +449,7 @@ namespace estimation
+           my_filter_.getEstimate(ros::Time(), tmp);
+           if(!vo_active_ && !gps_active_)
+             tmp.getOrigin().setZ(0.0);
++          tmp.stamp_ = output_.header.stamp;
+           odom_broadcaster_.sendTransform(StampedTransform(tmp, tmp.stamp_, output_frame_, base_footprint_frame_));
+           
+           if (debug_){
+@@ -459,21 +470,21 @@ namespace estimation
+ 
+       // initialize filer with odometry frame
+       if (imu_active_ && gps_active_ && !my_filter_.isInitialized()) {
+-	Quaternion q = imu_meas_.getRotation();
++        Quaternion q = imu_meas_.getRotation();
+         Vector3 p = gps_meas_.getOrigin();
+         Transform init_meas_ = Transform(q, p);
+         my_filter_.initialize(init_meas_, gps_stamp_);
+         ROS_INFO("Kalman filter initialized with gps and imu measurement");
+       }	
+       else if ( odom_active_ && gps_active_ && !my_filter_.isInitialized()) {
+-	Quaternion q = odom_meas_.getRotation();
++        Quaternion q = odom_meas_.getRotation();
+         Vector3 p = gps_meas_.getOrigin();
+         Transform init_meas_ = Transform(q, p);
+         my_filter_.initialize(init_meas_, gps_stamp_);
+         ROS_INFO("Kalman filter initialized with gps and odometry measurement");
+       }
+       else if ( vo_active_ && gps_active_ && !my_filter_.isInitialized()) {
+-	Quaternion q = vo_meas_.getRotation();
++        Quaternion q = vo_meas_.getRotation();
+         Vector3 p = gps_meas_.getOrigin();
+         Transform init_meas_ = Transform(q, p);
+         my_filter_.initialize(init_meas_, gps_stamp_);
+-- 
+2.35.1
+

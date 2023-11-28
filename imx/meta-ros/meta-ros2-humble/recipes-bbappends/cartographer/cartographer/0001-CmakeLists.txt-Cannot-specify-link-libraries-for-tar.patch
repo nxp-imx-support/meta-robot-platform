@@ -1,0 +1,45 @@
+From 20551a427d491c7e1311e6f4ea05dc129f868697 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Sun, 23 Apr 2023 15:19:46 +0800
+Subject: [PATCH] CmakeLists.txt: Cannot specify link libraries for target
+ cartographer_compute_relations_metrics
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 8 +-------
+ 1 file changed, 1 insertion(+), 7 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8cab36d..8e23373 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -63,12 +63,6 @@ else()
+   find_library(CAIRO_LIBRARIES cairo)
+ endif()
+ 
+-# Only build the documentation if we can find Sphinx.
+-find_package(Sphinx)
+-if(SPHINX_FOUND)
+-  add_subdirectory("docs")
+-endif()
+-
+ # Install catkin package.xml
+ install(FILES package.xml DESTINATION share/cartographer)
+ 
+@@ -195,12 +189,12 @@ google_binary(cartographer_autogenerate_ground_truth
+   SRCS
+     cartographer/ground_truth/autogenerate_ground_truth_main.cc
+ )
+-target_link_libraries(cartographer_compute_relations_metrics PUBLIC -ldl)
+ 
+ google_binary(cartographer_compute_relations_metrics
+   SRCS
+     cartographer/ground_truth/compute_relations_metrics_main.cc
+ )
++target_link_libraries(cartographer_compute_relations_metrics PUBLIC -ldl)
+ 
+ google_binary(cartographer_pbstream
+   SRCS
+-- 
+2.35.1
+

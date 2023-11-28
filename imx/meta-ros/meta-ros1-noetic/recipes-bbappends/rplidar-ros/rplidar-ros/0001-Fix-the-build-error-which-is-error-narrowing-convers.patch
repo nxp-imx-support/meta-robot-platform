@@ -1,0 +1,41 @@
+From a1df0dc344620d3727668f8950ebf524459dd425 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 25 Apr 2023 13:34:40 +0800
+Subject: [PATCH] Fix the build error which is error: narrowing conversion of
+ 'rp::hal::Event::EVENT_TIMEOUT' from 'int' to 'long unsigned int'
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ sdk/src/arch/linux/net_socket.cpp | 2 +-
+ sdk/src/sl_lidar_driver.cpp       | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sdk/src/arch/linux/net_socket.cpp b/sdk/src/arch/linux/net_socket.cpp
+index 36b9bec..5cc69b6 100644
+--- a/sdk/src/arch/linux/net_socket.cpp
++++ b/sdk/src/arch/linux/net_socket.cpp
+@@ -167,7 +167,7 @@ u_result SocketAddress::getAddressAsString(char * buffer, size_t buffersize) con
+ 
+         break;
+     }
+-    return ans<=0?RESULT_OPERATION_FAIL:RESULT_OK;
++    return ans==NULL?RESULT_OPERATION_FAIL:RESULT_OK;
+ }
+ 
+ 
+diff --git a/sdk/src/sl_lidar_driver.cpp b/sdk/src/sl_lidar_driver.cpp
+index 1e7e234..33b2301 100644
+--- a/sdk/src/sl_lidar_driver.cpp
++++ b/sdk/src/sl_lidar_driver.cpp
+@@ -553,7 +553,7 @@ namespace sl {
+         {
+             switch (_dataEvt.wait(timeout))
+             {
+-            case rp::hal::Event::EVENT_TIMEOUT:
++            case (long unsigned int)rp::hal::Event::EVENT_TIMEOUT:
+                 count = 0;
+                 return SL_RESULT_OPERATION_TIMEOUT;
+             case rp::hal::Event::EVENT_OK:
+-- 
+2.17.1
+

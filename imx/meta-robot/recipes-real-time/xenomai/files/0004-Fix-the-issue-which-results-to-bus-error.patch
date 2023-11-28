@@ -1,0 +1,26 @@
+From 7e7516c4050548141d4b846383ec21dd9c348ed4 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Wed, 24 Nov 2021 14:20:50 +0800
+Subject: [PATCH 4/5] Fix the issue which results to bus error
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ testsuite/spitest/spitest.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/testsuite/spitest/spitest.c b/testsuite/spitest/spitest.c
+index 6163e54bf..79484d89e 100644
+--- a/testsuite/spitest/spitest.c
++++ b/testsuite/spitest/spitest.c
+@@ -278,7 +278,7 @@ static int do_spi_loop(int fd)
+ 	struct timespec now, start;
+ 	struct itimerspec its;
+ 
+-	memset(get_odata(), 0x1, get_odlen());
++	//memset(get_odata(), 0x1, get_odlen());
+ 	set_output_header();
+ 
+ 	if (with_latency) {
+-- 
+2.35.1
+

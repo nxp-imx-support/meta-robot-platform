@@ -1,0 +1,1925 @@
+From f570724fa22a93bf6e97a60b2234cf5e5994ce78 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 4 Jan 2022 16:25:47 +0800
+Subject: [PATCH 1/3] Fork ORB-SLAM3 v1.0 release and add supporting OpenGL ES
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt                                | 117 +++--
+ .../Monocular-Inertial/mono_inertial_euroc.cc |  20 +-
+ .../mono_inertial_realsense_D435i.cc          |   2 +-
+ .../mono_inertial_realsense_t265.cc           |   2 +-
+ .../mono_inertial_tum_vi.cc                   |   2 +-
+ Examples/Monocular/mono_euroc.cc              |  20 +-
+ Examples/Monocular/mono_kitti.cc              |   2 +-
+ Examples/Monocular/mono_realsense_D435i.cc    |   2 +-
+ Examples/Monocular/mono_realsense_t265.cc     |   2 +-
+ Examples/Monocular/mono_tum.cc                |   2 +-
+ Examples/Monocular/mono_tum_vi.cc             |   2 +-
+ .../rgbd_inertial_realsense_D435i.cc          |   2 +-
+ Examples/RGB-D/rgbd_realsense_D435i.cc        |   2 +-
+ Examples/RGB-D/rgbd_tum.cc                    |   2 +-
+ .../Stereo-Inertial/stereo_inertial_euroc.cc  |  21 +-
+ .../stereo_inertial_realsense_D435i.cc        |   2 +-
+ .../stereo_inertial_realsense_t265.cc         |   2 +-
+ .../Stereo-Inertial/stereo_inertial_tum_vi.cc |   2 +-
+ Examples/Stereo/stereo_euroc.cc               |  20 +-
+ Examples/Stereo/stereo_kitti.cc               |   2 +-
+ Examples/Stereo/stereo_realsense_D435i.cc     |   2 +-
+ Examples/Stereo/stereo_realsense_t265.cc      |   2 +-
+ Examples/Stereo/stereo_tum_vi.cc              |   2 +-
+ .../Monocular-Inertial/mono_inertial_euroc.cc |  19 +-
+ .../mono_inertial_realsense_D435i.cc          |   2 +-
+ .../mono_inertial_realsense_t265.cc           |   2 +-
+ .../mono_inertial_tum_vi.cc                   |   2 +-
+ Examples_old/Monocular/mono_euroc.cc          |  20 +-
+ Examples_old/Monocular/mono_kitti.cc          |   2 +-
+ .../Monocular/mono_realsense_D435i.cc         |   2 +-
+ Examples_old/Monocular/mono_realsense_t265.cc |   2 +-
+ Examples_old/Monocular/mono_tum.cc            |   2 +-
+ Examples_old/Monocular/mono_tum_vi.cc         |   2 +-
+ .../rgbd_inertial_realsense_D435i.cc          |   2 +-
+ Examples_old/RGB-D/rgbd_realsense_D435i.cc    |   2 +-
+ Examples_old/RGB-D/rgbd_tum.cc                |   2 +-
+ .../Stereo-Inertial/stereo_inertial_euroc.cc  |  21 +-
+ .../stereo_inertial_realsense_D435i.cc        |   2 +-
+ .../stereo_inertial_realsense_t265.cc         |   2 +-
+ .../Stereo-Inertial/stereo_inertial_tum_vi.cc |   2 +-
+ Examples_old/Stereo/stereo_euroc.cc           |  20 +-
+ Examples_old/Stereo/stereo_kitti.cc           |   2 +-
+ Examples_old/Stereo/stereo_realsense_D435i.cc |   2 +-
+ Examples_old/Stereo/stereo_realsense_t265.cc  |   2 +-
+ Examples_old/Stereo/stereo_tum_vi.cc          |   3 +-
+ Thirdparty/DBoW2/CMakeLists.txt               |   4 +-
+ Thirdparty/Sophus/CMakeLists.txt              |   5 +-
+ Thirdparty/g2o/CMakeLists.txt                 |   6 +-
+ src/Frame.cc                                  |   6 +-
+ src/LocalMapping.cc                           |   2 +-
+ src/LoopClosing.cc                            |   2 +-
+ src/MapDrawer.cc                              | 464 +++++++++++++++++-
+ src/System.cc                                 |   4 +-
+ src/Tracking.cc                               |   2 +-
+ src/Viewer.cc                                 |   2 +-
+ 55 files changed, 720 insertions(+), 128 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 016e743..761f1d2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 2.8)
+-project(ORB_SLAM3)
++project(ORB-SLAM3)
+ 
+ IF(NOT CMAKE_BUILD_TYPE)
+   SET(CMAKE_BUILD_TYPE Release)
+@@ -9,8 +9,9 @@ MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
+ 
+ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall   -O3")
+ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall   -O3")
+-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -march=native")
+-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
++set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Wall -O3")
++set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -std=c++11 -Wall -O3")
++set(HAVE_GLES_2 1)
+ 
+ # Check C++11 or C++0x support
+ include(CheckCXXCompilerFlag)
+@@ -30,10 +31,17 @@ endif()
+ 
+ LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
+ 
++add_subdirectory(Thirdparty/DBoW2)
++add_subdirectory(Thirdparty/g2o)
++add_subdirectory(Thirdparty/Sophus)
++
+ find_package(OpenCV 4.4)
+-   if(NOT OpenCV_FOUND)
+-      message(FATAL_ERROR "OpenCV > 4.4 not found.")
+-   endif()
++if(NOT OpenCV_FOUND)
++  find_package(OpenCV 3.4)
++  if(NOT OpenCV_FOUND)
++    message(FATAL_ERROR "OpenCV > 3.4 not found.")
++  endif()
++endif()
+ 
+ MESSAGE("OPENCV VERSION:")
+ MESSAGE(${OpenCV_VERSION})
+@@ -41,6 +49,9 @@ MESSAGE(${OpenCV_VERSION})
+ find_package(Eigen3 3.1.0 REQUIRED)
+ find_package(Pangolin REQUIRED)
+ find_package(realsense2)
++find_package(PkgConfig REQUIRED)
++pkg_search_module(EGL  REQUIRED wayland-egl)
++pkg_search_module(GLES REQUIRED glesv2)
+ 
+ include_directories(
+ ${PROJECT_SOURCE_DIR}
+@@ -113,12 +124,10 @@ include/SerializationUtils.h
+ include/Config.h
+ include/Settings.h)
+ 
+-add_subdirectory(Thirdparty/g2o)
+-
+ target_link_libraries(${PROJECT_NAME}
+ ${OpenCV_LIBS}
+ ${EIGEN3_LIBS}
+-${Pangolin_LIBRARIES}
++${Pangolin_LIBRARY}
+ ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
+ ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+ -lboost_serialization
+@@ -143,12 +152,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/RGB-D)
+ 
+ add_executable(rgbd_tum
+         Examples/RGB-D/rgbd_tum.cc)
+-target_link_libraries(rgbd_tum ${PROJECT_NAME})
++target_link_libraries(rgbd_tum ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(rgbd_realsense_D435i
+             Examples/RGB-D/rgbd_realsense_D435i.cc)
+-    target_link_libraries(rgbd_realsense_D435i ${PROJECT_NAME})
++    target_link_libraries(rgbd_realsense_D435i ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ 
+@@ -158,7 +167,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/RGB-D-Inertial
+ if(realsense2_FOUND)
+     add_executable(rgbd_inertial_realsense_D435i
+             Examples/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc)
+-    target_link_libraries(rgbd_inertial_realsense_D435i ${PROJECT_NAME})
++    target_link_libraries(rgbd_inertial_realsense_D435i ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Stereo examples
+@@ -166,24 +175,24 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Stereo)
+ 
+ add_executable(stereo_kitti
+         Examples/Stereo/stereo_kitti.cc)
+-target_link_libraries(stereo_kitti ${PROJECT_NAME})
++target_link_libraries(stereo_kitti ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(stereo_euroc
+         Examples/Stereo/stereo_euroc.cc)
+-target_link_libraries(stereo_euroc ${PROJECT_NAME})
++target_link_libraries(stereo_euroc ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(stereo_tum_vi
+         Examples/Stereo/stereo_tum_vi.cc)
+-target_link_libraries(stereo_tum_vi ${PROJECT_NAME})
++target_link_libraries(stereo_tum_vi ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(stereo_realsense_t265
+             Examples/Stereo/stereo_realsense_t265.cc)
+-    target_link_libraries(stereo_realsense_t265 ${PROJECT_NAME})
++    target_link_libraries(stereo_realsense_t265 ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(stereo_realsense_D435i
+             Examples/Stereo/stereo_realsense_D435i.cc)
+-    target_link_libraries(stereo_realsense_D435i ${PROJECT_NAME})
++    target_link_libraries(stereo_realsense_D435i ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Monocular examples
+@@ -191,24 +200,24 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Monocular)
+ 
+ add_executable(mono_tum
+         Examples/Monocular/mono_tum.cc)
+-target_link_libraries(mono_tum ${PROJECT_NAME})
++target_link_libraries(mono_tum ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_kitti
+         Examples/Monocular/mono_kitti.cc)
+-target_link_libraries(mono_kitti ${PROJECT_NAME})
++target_link_libraries(mono_kitti ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_euroc
+         Examples/Monocular/mono_euroc.cc)
+-target_link_libraries(mono_euroc ${PROJECT_NAME})
++target_link_libraries(mono_euroc ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_tum_vi
+         Examples/Monocular/mono_tum_vi.cc)
+-target_link_libraries(mono_tum_vi ${PROJECT_NAME})
++target_link_libraries(mono_tum_vi ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(mono_realsense_t265
+             Examples/Monocular/mono_realsense_t265.cc)
+-    target_link_libraries(mono_realsense_t265 ${PROJECT_NAME})
++    target_link_libraries(mono_realsense_t265 ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(mono_realsense_D435i
+             Examples/Monocular/mono_realsense_D435i.cc)
+@@ -220,20 +229,20 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Monocular-Iner
+ 
+ add_executable(mono_inertial_euroc
+         Examples/Monocular-Inertial/mono_inertial_euroc.cc)
+-target_link_libraries(mono_inertial_euroc ${PROJECT_NAME})
++target_link_libraries(mono_inertial_euroc ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_inertial_tum_vi
+         Examples/Monocular-Inertial/mono_inertial_tum_vi.cc)
+-target_link_libraries(mono_inertial_tum_vi ${PROJECT_NAME})
++target_link_libraries(mono_inertial_tum_vi ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(mono_inertial_realsense_t265
+             Examples/Monocular-Inertial/mono_inertial_realsense_t265.cc)
+-    target_link_libraries(mono_inertial_realsense_t265 ${PROJECT_NAME})
++    target_link_libraries(mono_inertial_realsense_t265 ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(mono_inertial_realsense_D435i
+             Examples/Monocular-Inertial/mono_inertial_realsense_D435i.cc)
+-    target_link_libraries(mono_inertial_realsense_D435i ${PROJECT_NAME})
++    target_link_libraries(mono_inertial_realsense_D435i ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Stereo Inertial examples
+@@ -241,31 +250,31 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Stereo-Inertia
+ 
+ add_executable(stereo_inertial_euroc
+         Examples/Stereo-Inertial/stereo_inertial_euroc.cc)
+-target_link_libraries(stereo_inertial_euroc ${PROJECT_NAME})
++target_link_libraries(stereo_inertial_euroc ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(stereo_inertial_tum_vi
+         Examples/Stereo-Inertial/stereo_inertial_tum_vi.cc)
+-target_link_libraries(stereo_inertial_tum_vi ${PROJECT_NAME})
++target_link_libraries(stereo_inertial_tum_vi ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(stereo_inertial_realsense_t265
+             Examples/Stereo-Inertial/stereo_inertial_realsense_t265.cc)
+-    target_link_libraries(stereo_inertial_realsense_t265 ${PROJECT_NAME})
++    target_link_libraries(stereo_inertial_realsense_t265 ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(stereo_inertial_realsense_D435i
+             Examples/Stereo-Inertial/stereo_inertial_realsense_D435i.cc)
+-    target_link_libraries(stereo_inertial_realsense_D435i ${PROJECT_NAME})
++    target_link_libraries(stereo_inertial_realsense_D435i ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Calibration)
+ if(realsense2_FOUND)
+     add_executable(recorder_realsense_D435i
+             Examples/Calibration/recorder_realsense_D435i.cc)
+-    target_link_libraries(recorder_realsense_D435i ${PROJECT_NAME})
++    target_link_libraries(recorder_realsense_D435i ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(recorder_realsense_T265
+             Examples/Calibration/recorder_realsense_T265.cc)
+-    target_link_libraries(recorder_realsense_T265 ${PROJECT_NAME})
++    target_link_libraries(recorder_realsense_T265 ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Old examples
+@@ -275,12 +284,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/RGB-D)
+ 
+ add_executable(rgbd_tum_old
+         Examples_old/RGB-D/rgbd_tum.cc)
+-target_link_libraries(rgbd_tum_old ${PROJECT_NAME})
++target_link_libraries(rgbd_tum_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(rgbd_realsense_D435i_old
+             Examples_old/RGB-D/rgbd_realsense_D435i.cc)
+-    target_link_libraries(rgbd_realsense_D435i_old ${PROJECT_NAME})
++    target_link_libraries(rgbd_realsense_D435i_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ 
+@@ -290,7 +299,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/RGB-D-Iner
+ if(realsense2_FOUND)
+     add_executable(rgbd_inertial_realsense_D435i_old
+             Examples_old/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc)
+-    target_link_libraries(rgbd_inertial_realsense_D435i_old ${PROJECT_NAME})
++    target_link_libraries(rgbd_inertial_realsense_D435i_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Stereo examples
+@@ -298,24 +307,24 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Stereo)
+ 
+ add_executable(stereo_kitti_old
+         Examples_old/Stereo/stereo_kitti.cc)
+-target_link_libraries(stereo_kitti_old ${PROJECT_NAME})
++target_link_libraries(stereo_kitti_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(stereo_euroc_old
+         Examples_old/Stereo/stereo_euroc.cc)
+-target_link_libraries(stereo_euroc_old ${PROJECT_NAME})
++target_link_libraries(stereo_euroc_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(stereo_tum_vi_old
+         Examples_old/Stereo/stereo_tum_vi.cc)
+-target_link_libraries(stereo_tum_vi_old ${PROJECT_NAME})
++target_link_libraries(stereo_tum_vi_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(stereo_realsense_t265_old
+             Examples_old/Stereo/stereo_realsense_t265.cc)
+-    target_link_libraries(stereo_realsense_t265_old ${PROJECT_NAME})
++    target_link_libraries(stereo_realsense_t265_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(stereo_realsense_D435i_old
+             Examples_old/Stereo/stereo_realsense_D435i.cc)
+-    target_link_libraries(stereo_realsense_D435i_old ${PROJECT_NAME})
++    target_link_libraries(stereo_realsense_D435i_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Monocular examples
+@@ -323,28 +332,28 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Monocular)
+ 
+ add_executable(mono_tum_old
+         Examples_old/Monocular/mono_tum.cc)
+-target_link_libraries(mono_tum_old ${PROJECT_NAME})
++target_link_libraries(mono_tum_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_kitti_old
+         Examples_old/Monocular/mono_kitti.cc)
+-target_link_libraries(mono_kitti_old ${PROJECT_NAME})
++target_link_libraries(mono_kitti_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_euroc_old
+         Examples_old/Monocular/mono_euroc.cc)
+-target_link_libraries(mono_euroc_old ${PROJECT_NAME})
++target_link_libraries(mono_euroc_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_tum_vi_old
+         Examples_old/Monocular/mono_tum_vi.cc)
+-target_link_libraries(mono_tum_vi_old ${PROJECT_NAME})
++target_link_libraries(mono_tum_vi_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(mono_realsense_t265_old
+             Examples_old/Monocular/mono_realsense_t265.cc)
+-    target_link_libraries(mono_realsense_t265_old ${PROJECT_NAME})
++    target_link_libraries(mono_realsense_t265_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(mono_realsense_D435i_old
+             Examples_old/Monocular/mono_realsense_D435i.cc)
+-    target_link_libraries(mono_realsense_D435i_old ${PROJECT_NAME})
++    target_link_libraries(mono_realsense_D435i_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Monocular inertial examples
+@@ -352,20 +361,20 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Monocular-
+ 
+ add_executable(mono_inertial_euroc_old
+         Examples_old/Monocular-Inertial/mono_inertial_euroc.cc)
+-target_link_libraries(mono_inertial_euroc_old ${PROJECT_NAME})
++target_link_libraries(mono_inertial_euroc_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(mono_inertial_tum_vi_old
+         Examples_old/Monocular-Inertial/mono_inertial_tum_vi.cc)
+-target_link_libraries(mono_inertial_tum_vi_old ${PROJECT_NAME})
++target_link_libraries(mono_inertial_tum_vi_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(mono_inertial_realsense_t265_old
+             Examples_old/Monocular-Inertial/mono_inertial_realsense_t265.cc)
+-    target_link_libraries(mono_inertial_realsense_t265_old ${PROJECT_NAME})
++    target_link_libraries(mono_inertial_realsense_t265_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(mono_inertial_realsense_D435i_old
+             Examples_old/Monocular-Inertial/mono_inertial_realsense_D435i.cc)
+-    target_link_libraries(mono_inertial_realsense_D435i_old ${PROJECT_NAME})
++    target_link_libraries(mono_inertial_realsense_D435i_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+ 
+ #Stereo Inertial examples
+@@ -373,18 +382,18 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples_old/Stereo-Ine
+ 
+ add_executable(stereo_inertial_euroc_old
+         Examples_old/Stereo-Inertial/stereo_inertial_euroc.cc)
+-target_link_libraries(stereo_inertial_euroc_old ${PROJECT_NAME})
++target_link_libraries(stereo_inertial_euroc_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ add_executable(stereo_inertial_tum_vi_old
+         Examples_old/Stereo-Inertial/stereo_inertial_tum_vi.cc)
+-target_link_libraries(stereo_inertial_tum_vi_old ${PROJECT_NAME})
++target_link_libraries(stereo_inertial_tum_vi_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+ if(realsense2_FOUND)
+     add_executable(stereo_inertial_realsense_t265_old
+             Examples_old/Stereo-Inertial/stereo_inertial_realsense_t265.cc)
+-    target_link_libraries(stereo_inertial_realsense_t265_old ${PROJECT_NAME})
++    target_link_libraries(stereo_inertial_realsense_t265_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ 
+     add_executable(stereo_inertial_realsense_D435i_old
+             Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc)
+-    target_link_libraries(stereo_inertial_realsense_D435i_old ${PROJECT_NAME})
++    target_link_libraries(stereo_inertial_realsense_D435i_old ${PROJECT_NAME} -ldl ${EGL_LIBRARIES} ${GLES_LIBRARIES})
+ endif()
+diff --git a/Examples/Monocular-Inertial/mono_inertial_euroc.cc b/Examples/Monocular-Inertial/mono_inertial_euroc.cc
+index b9f320f..c1e23ca 100644
+--- a/Examples/Monocular-Inertial/mono_inertial_euroc.cc
++++ b/Examples/Monocular-Inertial/mono_inertial_euroc.cc
+@@ -16,7 +16,7 @@
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -231,7 +231,23 @@ int main(int argc, char *argv[])
+ 
+     // Stop all threads
+     SLAM.Shutdown();
+-
++#ifdef REGISTER_TIMES    
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples/Monocular-Inertial/mono_inertial_realsense_D435i.cc b/Examples/Monocular-Inertial/mono_inertial_realsense_D435i.cc
+index c8bf1ff..e7c18a3 100644
+--- a/Examples/Monocular-Inertial/mono_inertial_realsense_D435i.cc
++++ b/Examples/Monocular-Inertial/mono_inertial_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Monocular-Inertial/mono_inertial_realsense_t265.cc b/Examples/Monocular-Inertial/mono_inertial_realsense_t265.cc
+index b4575b6..0b1d2d6 100644
+--- a/Examples/Monocular-Inertial/mono_inertial_realsense_t265.cc
++++ b/Examples/Monocular-Inertial/mono_inertial_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Monocular-Inertial/mono_inertial_tum_vi.cc b/Examples/Monocular-Inertial/mono_inertial_tum_vi.cc
+index bd84ce0..fcfc5ae 100644
+--- a/Examples/Monocular-Inertial/mono_inertial_tum_vi.cc
++++ b/Examples/Monocular-Inertial/mono_inertial_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Monocular/mono_euroc.cc b/Examples/Monocular/mono_euroc.cc
+index 3a23312..a2e2934 100644
+--- a/Examples/Monocular/mono_euroc.cc
++++ b/Examples/Monocular/mono_euroc.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -185,7 +185,23 @@ int main(int argc, char **argv)
+     }
+     // Stop all threads
+     SLAM.Shutdown();
+-
++#ifdef REGISTER_TIMES    
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples/Monocular/mono_kitti.cc b/Examples/Monocular/mono_kitti.cc
+index 404c824..cd83590 100644
+--- a/Examples/Monocular/mono_kitti.cc
++++ b/Examples/Monocular/mono_kitti.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Monocular/mono_realsense_D435i.cc b/Examples/Monocular/mono_realsense_D435i.cc
+index 11cbc03..1019345 100644
+--- a/Examples/Monocular/mono_realsense_D435i.cc
++++ b/Examples/Monocular/mono_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Monocular/mono_realsense_t265.cc b/Examples/Monocular/mono_realsense_t265.cc
+index 9895eef..5e7c5a2 100644
+--- a/Examples/Monocular/mono_realsense_t265.cc
++++ b/Examples/Monocular/mono_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Monocular/mono_tum.cc b/Examples/Monocular/mono_tum.cc
+index 0e7d922..fb187bf 100644
+--- a/Examples/Monocular/mono_tum.cc
++++ b/Examples/Monocular/mono_tum.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Monocular/mono_tum_vi.cc b/Examples/Monocular/mono_tum_vi.cc
+index 2805c92..9677ed7 100644
+--- a/Examples/Monocular/mono_tum_vi.cc
++++ b/Examples/Monocular/mono_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc b/Examples/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc
+index 03970c5..673dd36 100644
+--- a/Examples/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc
++++ b/Examples/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/RGB-D/rgbd_realsense_D435i.cc b/Examples/RGB-D/rgbd_realsense_D435i.cc
+index 8ff6131..140d398 100644
+--- a/Examples/RGB-D/rgbd_realsense_D435i.cc
++++ b/Examples/RGB-D/rgbd_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/RGB-D/rgbd_tum.cc b/Examples/RGB-D/rgbd_tum.cc
+index d420da5..7905a90 100644
+--- a/Examples/RGB-D/rgbd_tum.cc
++++ b/Examples/RGB-D/rgbd_tum.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Stereo-Inertial/stereo_inertial_euroc.cc b/Examples/Stereo-Inertial/stereo_inertial_euroc.cc
+index bb52223..1fde353 100644
+--- a/Examples/Stereo-Inertial/stereo_inertial_euroc.cc
++++ b/Examples/Stereo-Inertial/stereo_inertial_euroc.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -221,8 +221,23 @@ int main(int argc, char **argv)
+     }
+     // Stop all threads
+     SLAM.Shutdown();
+-
+-
++#ifdef REGISTER_TIMES
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples/Stereo-Inertial/stereo_inertial_realsense_D435i.cc b/Examples/Stereo-Inertial/stereo_inertial_realsense_D435i.cc
+index d3a03bf..186f89d 100644
+--- a/Examples/Stereo-Inertial/stereo_inertial_realsense_D435i.cc
++++ b/Examples/Stereo-Inertial/stereo_inertial_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Stereo-Inertial/stereo_inertial_realsense_t265.cc b/Examples/Stereo-Inertial/stereo_inertial_realsense_t265.cc
+index 9fcd775..40602ce 100644
+--- a/Examples/Stereo-Inertial/stereo_inertial_realsense_t265.cc
++++ b/Examples/Stereo-Inertial/stereo_inertial_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Stereo-Inertial/stereo_inertial_tum_vi.cc b/Examples/Stereo-Inertial/stereo_inertial_tum_vi.cc
+index 2abe614..5dee13b 100644
+--- a/Examples/Stereo-Inertial/stereo_inertial_tum_vi.cc
++++ b/Examples/Stereo-Inertial/stereo_inertial_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Stereo/stereo_euroc.cc b/Examples/Stereo/stereo_euroc.cc
+index 1250f2e..ca872f9 100644
+--- a/Examples/Stereo/stereo_euroc.cc
++++ b/Examples/Stereo/stereo_euroc.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -167,7 +167,23 @@ int main(int argc, char **argv)
+     }
+     // Stop all threads
+     SLAM.Shutdown();
+-
++#ifdef REGISTER_TIMES    
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples/Stereo/stereo_kitti.cc b/Examples/Stereo/stereo_kitti.cc
+index fdc8ef0..6977a55 100644
+--- a/Examples/Stereo/stereo_kitti.cc
++++ b/Examples/Stereo/stereo_kitti.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Stereo/stereo_realsense_D435i.cc b/Examples/Stereo/stereo_realsense_D435i.cc
+index f1a4571..ac5896a 100644
+--- a/Examples/Stereo/stereo_realsense_D435i.cc
++++ b/Examples/Stereo/stereo_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Stereo/stereo_realsense_t265.cc b/Examples/Stereo/stereo_realsense_t265.cc
+index f96d80a..cf3732f 100644
+--- a/Examples/Stereo/stereo_realsense_t265.cc
++++ b/Examples/Stereo/stereo_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples/Stereo/stereo_tum_vi.cc b/Examples/Stereo/stereo_tum_vi.cc
+index 20a3ecf..3c95458 100644
+--- a/Examples/Stereo/stereo_tum_vi.cc
++++ b/Examples/Stereo/stereo_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Monocular-Inertial/mono_inertial_euroc.cc b/Examples_old/Monocular-Inertial/mono_inertial_euroc.cc
+index ea1dceb..c1e23ca 100644
+--- a/Examples_old/Monocular-Inertial/mono_inertial_euroc.cc
++++ b/Examples_old/Monocular-Inertial/mono_inertial_euroc.cc
+@@ -16,6 +16,7 @@
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -230,7 +231,23 @@ int main(int argc, char *argv[])
+ 
+     // Stop all threads
+     SLAM.Shutdown();
+-
++#ifdef REGISTER_TIMES    
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples_old/Monocular-Inertial/mono_inertial_realsense_D435i.cc b/Examples_old/Monocular-Inertial/mono_inertial_realsense_D435i.cc
+index c8bf1ff..e7c18a3 100644
+--- a/Examples_old/Monocular-Inertial/mono_inertial_realsense_D435i.cc
++++ b/Examples_old/Monocular-Inertial/mono_inertial_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Monocular-Inertial/mono_inertial_realsense_t265.cc b/Examples_old/Monocular-Inertial/mono_inertial_realsense_t265.cc
+index b4575b6..0b1d2d6 100644
+--- a/Examples_old/Monocular-Inertial/mono_inertial_realsense_t265.cc
++++ b/Examples_old/Monocular-Inertial/mono_inertial_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Monocular-Inertial/mono_inertial_tum_vi.cc b/Examples_old/Monocular-Inertial/mono_inertial_tum_vi.cc
+index bd84ce0..fcfc5ae 100644
+--- a/Examples_old/Monocular-Inertial/mono_inertial_tum_vi.cc
++++ b/Examples_old/Monocular-Inertial/mono_inertial_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Monocular/mono_euroc.cc b/Examples_old/Monocular/mono_euroc.cc
+index 3a23312..a2e2934 100644
+--- a/Examples_old/Monocular/mono_euroc.cc
++++ b/Examples_old/Monocular/mono_euroc.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -185,7 +185,23 @@ int main(int argc, char **argv)
+     }
+     // Stop all threads
+     SLAM.Shutdown();
+-
++#ifdef REGISTER_TIMES    
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples_old/Monocular/mono_kitti.cc b/Examples_old/Monocular/mono_kitti.cc
+index 404c824..cd83590 100644
+--- a/Examples_old/Monocular/mono_kitti.cc
++++ b/Examples_old/Monocular/mono_kitti.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Monocular/mono_realsense_D435i.cc b/Examples_old/Monocular/mono_realsense_D435i.cc
+index 11cbc03..1019345 100644
+--- a/Examples_old/Monocular/mono_realsense_D435i.cc
++++ b/Examples_old/Monocular/mono_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Monocular/mono_realsense_t265.cc b/Examples_old/Monocular/mono_realsense_t265.cc
+index 9895eef..5e7c5a2 100644
+--- a/Examples_old/Monocular/mono_realsense_t265.cc
++++ b/Examples_old/Monocular/mono_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Monocular/mono_tum.cc b/Examples_old/Monocular/mono_tum.cc
+index 0e7d922..fb187bf 100644
+--- a/Examples_old/Monocular/mono_tum.cc
++++ b/Examples_old/Monocular/mono_tum.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Monocular/mono_tum_vi.cc b/Examples_old/Monocular/mono_tum_vi.cc
+index 2805c92..9677ed7 100644
+--- a/Examples_old/Monocular/mono_tum_vi.cc
++++ b/Examples_old/Monocular/mono_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc b/Examples_old/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc
+index 03970c5..673dd36 100644
+--- a/Examples_old/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc
++++ b/Examples_old/RGB-D-Inertial/rgbd_inertial_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/RGB-D/rgbd_realsense_D435i.cc b/Examples_old/RGB-D/rgbd_realsense_D435i.cc
+index 8ff6131..140d398 100644
+--- a/Examples_old/RGB-D/rgbd_realsense_D435i.cc
++++ b/Examples_old/RGB-D/rgbd_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/RGB-D/rgbd_tum.cc b/Examples_old/RGB-D/rgbd_tum.cc
+index d420da5..7905a90 100644
+--- a/Examples_old/RGB-D/rgbd_tum.cc
++++ b/Examples_old/RGB-D/rgbd_tum.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Stereo-Inertial/stereo_inertial_euroc.cc b/Examples_old/Stereo-Inertial/stereo_inertial_euroc.cc
+index 25dbf3c..44c8731 100644
+--- a/Examples_old/Stereo-Inertial/stereo_inertial_euroc.cc
++++ b/Examples_old/Stereo-Inertial/stereo_inertial_euroc.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -298,8 +298,23 @@ int main(int argc, char **argv)
+     }
+     // Stop all threads
+     SLAM.Shutdown();
+-
+-
++#ifdef REGISTER_TIMES
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc b/Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc
+index d3a03bf..186f89d 100644
+--- a/Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc
++++ b/Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Stereo-Inertial/stereo_inertial_realsense_t265.cc b/Examples_old/Stereo-Inertial/stereo_inertial_realsense_t265.cc
+index 9fcd775..40602ce 100644
+--- a/Examples_old/Stereo-Inertial/stereo_inertial_realsense_t265.cc
++++ b/Examples_old/Stereo-Inertial/stereo_inertial_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Stereo-Inertial/stereo_inertial_tum_vi.cc b/Examples_old/Stereo-Inertial/stereo_inertial_tum_vi.cc
+index 2abe614..5dee13b 100644
+--- a/Examples_old/Stereo-Inertial/stereo_inertial_tum_vi.cc
++++ b/Examples_old/Stereo-Inertial/stereo_inertial_tum_vi.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Stereo/stereo_euroc.cc b/Examples_old/Stereo/stereo_euroc.cc
+index 08a59e4..1cfb066 100644
+--- a/Examples_old/Stereo/stereo_euroc.cc
++++ b/Examples_old/Stereo/stereo_euroc.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+@@ -254,7 +254,23 @@ int main(int argc, char **argv)
+     }
+     // Stop all threads
+     SLAM.Shutdown();
+-
++#ifdef REGISTER_TIMES    
++    // Tracking time statistics
++    sort(vTimesTrack.begin(),vTimesTrack.end());
++    float totaltime = 0;
++    int total_frame = 0;
++    for (seq = 0; seq<num_seq; seq++) 
++    {
++        for(int ni=0; ni < nImages[seq]; ni++)
++        {
++            totaltime+=vTimesTrack[ni];
++        }
++        total_frame += nImages[seq];
++    }
++    cout << "-------" << endl << endl;
++    cout << "median tracking time: " << vTimesTrack[total_frame/2] << endl;
++    cout << "mean tracking time: " << totaltime/total_frame << endl;
++#endif
+     // Save camera trajectory
+     if (bFileName)
+     {
+diff --git a/Examples_old/Stereo/stereo_kitti.cc b/Examples_old/Stereo/stereo_kitti.cc
+index fdc8ef0..6977a55 100644
+--- a/Examples_old/Stereo/stereo_kitti.cc
++++ b/Examples_old/Stereo/stereo_kitti.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples_old/Stereo/stereo_realsense_D435i.cc b/Examples_old/Stereo/stereo_realsense_D435i.cc
+index f1a4571..ac5896a 100644
+--- a/Examples_old/Stereo/stereo_realsense_D435i.cc
++++ b/Examples_old/Stereo/stereo_realsense_D435i.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Stereo/stereo_realsense_t265.cc b/Examples_old/Stereo/stereo_realsense_t265.cc
+index f96d80a..cf3732f 100644
+--- a/Examples_old/Stereo/stereo_realsense_t265.cc
++++ b/Examples_old/Stereo/stereo_realsense_t265.cc
+@@ -15,7 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <iostream>
+diff --git a/Examples_old/Stereo/stereo_tum_vi.cc b/Examples_old/Stereo/stereo_tum_vi.cc
+index 3e296f6..3c95458 100644
+--- a/Examples_old/Stereo/stereo_tum_vi.cc
++++ b/Examples_old/Stereo/stereo_tum_vi.cc
+@@ -15,8 +15,7 @@
+ * You should have received a copy of the GNU General Public License along with ORB-SLAM3.
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+-
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Thirdparty/DBoW2/CMakeLists.txt b/Thirdparty/DBoW2/CMakeLists.txt
+index c312b25..8753e59 100644
+--- a/Thirdparty/DBoW2/CMakeLists.txt
++++ b/Thirdparty/DBoW2/CMakeLists.txt
+@@ -5,8 +5,8 @@ if(NOT CMAKE_BUILD_TYPE)
+   set(CMAKE_BUILD_TYPE Release)
+ endif()
+ 
+-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3 -march=native ")
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall  -O3 -march=native")
++set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall  -O3")
+ 
+ set(HDRS_DBOW2
+   DBoW2/BowVector.h
+diff --git a/Thirdparty/Sophus/CMakeLists.txt b/Thirdparty/Sophus/CMakeLists.txt
+index 933445b..91891d6 100644
+--- a/Thirdparty/Sophus/CMakeLists.txt
++++ b/Thirdparty/Sophus/CMakeLists.txt
+@@ -11,6 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
+ endif()
+ 
+ set(CMAKE_CXX_STANDARD 11)
++set(CMAKE_CXX_FLAGS "-Wno-error=deprecated-declarations -Wno-deprecated-declarations ")
+ 
+ # Set compiler specific settings (FixMe: Should not cmake do this for us automatically?)
+ IF("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+@@ -97,14 +98,14 @@ target_compile_features (sophus INTERFACE
+ add_custom_target(other SOURCES ${SOPHUS_OTHER_FILES})
+ 
+ # Create 'test' make target using ctest
+-option(BUILD_TESTS "Build tests." ON)
++option(BUILD_TESTS "Build tests." OFF)
+ if(BUILD_TESTS)
+     enable_testing()
+     add_subdirectory(test)
+ endif()
+ 
+ # Create examples make targets using ctest
+-option(BUILD_EXAMPLES "Build examples." ON)
++option(BUILD_EXAMPLES "Build examples." OFF)
+ if(BUILD_EXAMPLES)
+     add_subdirectory(examples)
+ endif()
+diff --git a/Thirdparty/g2o/CMakeLists.txt b/Thirdparty/g2o/CMakeLists.txt
+index 1a32ff9..36f7ac4 100644
+--- a/Thirdparty/g2o/CMakeLists.txt
++++ b/Thirdparty/g2o/CMakeLists.txt
+@@ -54,10 +54,8 @@ IF(OPENMP_FOUND AND G2O_USE_OPENMP)
+ ENDIF(OPENMP_FOUND AND G2O_USE_OPENMP)
+ 
+ # Compiler specific options for gcc
+-SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
+-SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
+-# SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+-# SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
++SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
++SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
+ 
+ # activate warnings !!!
+ SET(g2o_C_FLAGS "${g2o_C_FLAGS} -Wall -W")
+diff --git a/src/Frame.cc b/src/Frame.cc
+index a04c312..10c5fa9 100644
+--- a/src/Frame.cc
++++ b/src/Frame.cc
+@@ -97,7 +97,7 @@ Frame::Frame(const Frame &frame)
+ #endif
+ }
+ 
+-
++// Constructor for stereo cameras.
+ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera, Frame* pPrevF, const IMU::Calib &ImuCalib)
+     :mpcpi(NULL), mpORBvocabulary(voc),mpORBextractorLeft(extractorLeft),mpORBextractorRight(extractorRight), mTimeStamp(timeStamp), mK(K.clone()), mK_(Converter::toMatrix3f(K)), mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),
+      mImuCalib(ImuCalib), mpImuPreintegrated(NULL), mpPrevFrame(pPrevF),mpImuPreintegratedFrame(NULL), mpReferenceKF(static_cast<KeyFrame*>(NULL)), mbIsSet(false), mbImuPreintegrated(false),
+@@ -196,7 +196,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
+ 
+     AssignFeaturesToGrid();
+ }
+-
++// Constructor for RGB-D cameras.
+ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, GeometricCamera* pCamera,Frame* pPrevF, const IMU::Calib &ImuCalib)
+     :mpcpi(NULL),mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
+      mTimeStamp(timeStamp), mK(K.clone()), mK_(Converter::toMatrix3f(K)),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),
+@@ -285,7 +285,7 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
+     AssignFeaturesToGrid();
+ }
+ 
+-
++// Constructor for Monocular cameras.
+ Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, GeometricCamera* pCamera, cv::Mat &distCoef, const float &bf, const float &thDepth, Frame* pPrevF, const IMU::Calib &ImuCalib)
+     :mpcpi(NULL),mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
+      mTimeStamp(timeStamp), mK(static_cast<Pinhole*>(pCamera)->toK()), mK_(static_cast<Pinhole*>(pCamera)->toK_()), mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),
+diff --git a/src/LocalMapping.cc b/src/LocalMapping.cc
+index 53df332..895a16b 100644
+--- a/src/LocalMapping.cc
++++ b/src/LocalMapping.cc
+@@ -16,7 +16,7 @@
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include "LocalMapping.h"
+ #include "LoopClosing.h"
+ #include "ORBmatcher.h"
+diff --git a/src/LoopClosing.cc b/src/LoopClosing.cc
+index 319afb5..db3c30f 100644
+--- a/src/LoopClosing.cc
++++ b/src/LoopClosing.cc
+@@ -16,7 +16,7 @@
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include "LoopClosing.h"
+ 
+ #include "Sim3Solver.h"
+diff --git a/src/MapDrawer.cc b/src/MapDrawer.cc
+index 2ff8fae..701a8de 100644
+--- a/src/MapDrawer.cc
++++ b/src/MapDrawer.cc
+@@ -145,7 +145,42 @@ void MapDrawer::DrawMapPoints()
+ 
+     if(vpMPs.empty())
+         return;
++#ifdef HAVE_GLES_2
+ 
++    float color[] = {0.0f, 0.0f, 0.0f, 1.0f};  //white   set a_color,  this can not modify color
++    std::vector<float> vec_points;
++    float points1_[] = {}; 
++    uint length = 0;
++    for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
++    {
++        if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]))
++            continue;
++        Eigen::Matrix<float,3,1> pos = vpMPs[i]->GetWorldPos();
++        vec_points.push_back(pos(0));
++        vec_points.push_back(pos(1));
++        vec_points.push_back(pos(2));
++    }
++
++    if (vec_points.size() > 0) {
++        glVertexPointer(3, GL_FLOAT, 0, vec_points.data());
++        length = vec_points.size() / 3;
++    }
++    else {
++        glVertexPointer(3, GL_FLOAT, 0, points1_);
++        length = 0;
++    }
++
++    glEnableClientState(GL_VERTEX_ARRAY);
++    glEnableClientState(GL_COLOR_ARRAY);
++
++    pangolin::glEngine().SetColor(0.0,1.0,0.0,1.0);   // set color     green
++
++    glColorPointer(4, GL_FLOAT, 0, color);
++    glDrawArrays(GL_POINTS,0,length);
++
++    glDisableClientState(GL_VERTEX_ARRAY);
++    glDisableClientState(GL_COLOR_ARRAY);
++#else
+     glPointSize(mPointSize);
+     glBegin(GL_POINTS);
+     glColor3f(0.0,0.0,0.0);
+@@ -158,7 +193,42 @@ void MapDrawer::DrawMapPoints()
+         glVertex3f(pos(0),pos(1),pos(2));
+     }
+     glEnd();
++#endif
++
++#ifdef HAVE_GLES_2
++    float color_2[] = {1.0f, 0.0f, 0.0f, 1.0f};
++    float points2[] = {};
++    std::vector<float> vec_points_2; 
++    for(set<MapPoint*>::iterator sit=spRefMPs.begin(), send=spRefMPs.end(); sit!=send; sit++)
++    {
++        if((*sit)->isBad())
++            continue;
++        Eigen::Matrix<float,3,1> pos = (*sit)->GetWorldPos();
++        vec_points_2.push_back(pos(0));
++        vec_points_2.push_back(pos(1));
++        vec_points_2.push_back(pos(2));
++    } 
++    glEnableClientState(GL_VERTEX_ARRAY);
++    glEnableClientState(GL_COLOR_ARRAY);
++
++    pangolin::glEngine().SetColor(1.0,0.0,0.0,1.0);   //set color    red
++    if (vec_points_2.size() > 0) {
++        glVertexPointer(3, GL_FLOAT, 0, vec_points_2.data());
++        length = vec_points_2.size() / 3;
++    }
++    else {
++        glVertexPointer(3, GL_FLOAT, 0, points2);
++        length = 0;
++    }
++    
++    glColorPointer(4, GL_FLOAT, 0, color_2);
++    glDrawArrays(GL_POINTS,0,length);
++
++    glDisableClientState(GL_VERTEX_ARRAY);
++    glDisableClientState(GL_COLOR_ARRAY);
++
+ 
++#else
+     glPointSize(mPointSize);
+     glBegin(GL_POINTS);
+     glColor3f(1.0,0.0,0.0);
+@@ -173,6 +243,7 @@ void MapDrawer::DrawMapPoints()
+     }
+ 
+     glEnd();
++#endif        
+ }
+ 
+ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const bool bDrawInertialGraph, const bool bDrawOptLba)
+@@ -198,7 +269,124 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+             KeyFrame* pKF = vpKFs[i];
+             Eigen::Matrix4f Twc = pKF->GetPoseInverse().matrix();
+             unsigned int index_color = pKF->mnOriginMapId;
++#ifdef HAVE_GLES_2
++            pangolin::glEngine().currentmatrix->push(pangolin::glEngine().currentmatrix->top());
++            pangolin::OpenGlMatrix TT;
++            memcpy(TT.m, Twc.data(), sizeof(float) * 16 );
++            TT.Multiply();
++            GLfloat color[3] = { 0 };
++            if(!pKF->GetParent()) // It is the first KF in the map
++            {
++                glLineWidth(mKeyFrameLineWidth*5);
++                color[0] = 1.0f;
++                color[1] = 0.0f;
++                color[2] = 0.0f;
++            }
++            else
++            {
++                glLineWidth(mKeyFrameLineWidth);
++                color[0] = mfFrameColors[index_color][0];
++                color[1] = mfFrameColors[index_color][1];
++                color[2] = mfFrameColors[index_color][2];
++                if (bDrawOptLba) {
++                    if(sOptKFs.find(pKF->mnId) != sOptKFs.end())
++                    {
++                        // Green -> Opt KFs
++                        color[0] = 0.0f;
++                        color[1] = 1.0f;
++                        color[2] = 0.0f;
++                    }
++                    else if(sFixedKFs.find(pKF->mnId) != sFixedKFs.end())
++                    {
++                        // Red -> Fixed KFs
++                        color[0] = 1.0f;
++                        color[1] = 0.0f;
++                        color[2] = 0.0f;
++                    }
++                    else
++                    {
++                        // Basic color
++                        color[0] = 0.0f;
++                        color[1] = 0.0f;
++                        color[2] = 1.0f;
++                    }
++                }
++                else
++                {
++                    // Basic color
++                    color[0] = 0.0f;
++                    color[1] = 0.0f;
++                    color[2] = 1.0f;
++                }
++            }
+ 
++            GLfloat vertex[48] = { 0 };
++            vertex[0] = 0;
++            vertex[1] = 0;
++            vertex[2] = 0;
++            vertex[3] = w;
++            vertex[4] = h;
++            vertex[5] = z;
++            vertex[6] = 0;
++            vertex[7] = 0;
++            vertex[8] = 0;
++            vertex[9] = w;
++            vertex[10] = -h;
++            vertex[11] = z;
++            vertex[12] = 0;
++            vertex[13] = 0;
++            vertex[14] = 0;
++            vertex[15] = -w;
++            vertex[16] = -h;
++            vertex[17] = z;
++            vertex[18] = 0;
++            vertex[19] = 0;
++            vertex[20] = 0;
++            vertex[21] = -w;
++            vertex[22] = h;
++            vertex[23] = z;
++            vertex[24] = w;
++            vertex[25] = h;
++            vertex[26] = z;
++            vertex[27] = w;
++            vertex[28] = -h;
++            vertex[29] = z;
++
++            vertex[30] = -w;
++            vertex[31] = h;
++            vertex[32] = z;
++            vertex[33] = -w;
++            vertex[34] = -h;
++            vertex[35] = z;
++
++            vertex[36] = -w;
++            vertex[37] = h;
++            vertex[38] = z;
++            vertex[39] = w;
++            vertex[40] = h;
++            vertex[41] = z;
++
++            vertex[42] = -w;
++            vertex[43] = -h;
++            vertex[44] = z;
++            vertex[45] = w;
++            vertex[46] = -h;
++            vertex[47] = z;
++
++            pangolin::glEngine().SetColor(0.0,0.0,1.0,1.0);   //set color   bule
++            glEnableClientState(GL_VERTEX_ARRAY);
++            glEnableClientState(GL_COLOR_ARRAY);
++
++            glVertexPointer(3, GL_FLOAT, 0, vertex);
++            glColorPointer(3, GL_FLOAT, 0, color);
++            glDrawArrays(GL_LINES, 0, 16);
++
++            glDisableClientState(GL_VERTEX_ARRAY);
++            glDisableClientState(GL_COLOR_ARRAY);
++
++            pangolin::glEngine().currentmatrix->pop();
++            pangolin::glEngine().UpdateMatrices();
++#else
+             glPushMatrix();
+ 
+             glMultMatrixf((GLfloat*)Twc.data());
+@@ -259,12 +447,85 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+             glPopMatrix();
+ 
+             glEnd();
++#endif                        
+         }
+     }
+ 
+     if(bDrawGraph)
+     {
+         glLineWidth(mGraphLineWidth);
++#ifdef HAVE_GLES_2
++        GLfloat Color2[] = {1.0f, 0.0f, 0.0f, 1.0f};
++        std::vector<GLfloat> vertex2;
++        GLfloat vertex2_[] = { };
++                  
++
++        for(size_t i=0; i<vpKFs.size(); i++)
++        {
++            // Covisibility Graph
++            const vector<KeyFrame*> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(100);
++            Eigen::Vector3f Ow = vpKFs[i]->GetCameraCenter();
++            if(!vCovKFs.empty())
++            {
++                for(vector<KeyFrame*>::const_iterator vit=vCovKFs.begin(), vend=vCovKFs.end(); vit!=vend; vit++)
++                {
++                    if((*vit)->mnId<vpKFs[i]->mnId)
++                        continue;
++                    Eigen::Vector3f Ow2 = (*vit)->GetCameraCenter();
++                    vertex2.push_back(Ow(0));
++                    vertex2.push_back(Ow(1));
++                    vertex2.push_back(Ow(2));
++                    vertex2.push_back(Ow2(0));
++                    vertex2.push_back(Ow2(1));
++                    vertex2.push_back(Ow2(2));
++                }
++            }
++
++            // Spanning tree
++            KeyFrame* pParent = vpKFs[i]->GetParent();
++            if(pParent)
++            {
++                Eigen::Vector3f Owp = pParent->GetCameraCenter();
++                vertex2.push_back(Ow(0));
++                vertex2.push_back(Ow(1));
++                vertex2.push_back(Ow(2));
++                vertex2.push_back(Owp(0));
++                vertex2.push_back(Owp(1));
++                vertex2.push_back(Owp(2));
++            }
++
++            // Loops
++            set<KeyFrame*> sLoopKFs = vpKFs[i]->GetLoopEdges();
++            for(set<KeyFrame*>::iterator sit=sLoopKFs.begin(), send=sLoopKFs.end(); sit!=send; sit++)
++            {
++                if((*sit)->mnId<vpKFs[i]->mnId)
++                    continue;
++                Eigen::Vector3f Owl = (*sit)->GetCameraCenter();
++                vertex2.push_back(Ow(0));
++                vertex2.push_back(Ow(1));
++                vertex2.push_back(Ow(2));
++                vertex2.push_back(Owl(0));
++                vertex2.push_back(Owl(1));
++                vertex2.push_back(Owl(2));
++            }
++        }
++
++
++        glEnableClientState(GL_VERTEX_ARRAY);
++        glEnableClientState(GL_COLOR_ARRAY);
++
++        if (vertex2.size() > 0)
++            glVertexPointer(3, GL_FLOAT, 0, vertex2.data());
++        else
++            glVertexPointer(3, GL_FLOAT, 0, vertex2_);
++
++        pangolin::glEngine().SetColor(0.0,1.0,0.0,1.0);   //set color    GREEN
++        glColorPointer(4, GL_FLOAT, 0, Color2);
++        glDrawArrays(GL_LINES, 0, vertex2.size() / 3);
++
++        glDisableClientState(GL_VERTEX_ARRAY);
++        glDisableClientState(GL_COLOR_ARRAY);
++#else        
+         glColor4f(0.0f,1.0f,0.0f,0.6f);
+         glBegin(GL_LINES);
+ 
+@@ -308,11 +569,48 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+         }
+ 
+         glEnd();
++#endif               
+     }
+ 
+     if(bDrawInertialGraph && pActiveMap->isImuInitialized())
+     {
+         glLineWidth(mGraphLineWidth);
++#ifdef HAVE_GLES_2
++        GLfloat Color2[] = {1.0f, 0.0f, 0.0f, 0.6f};
++        std::vector<GLfloat> vertex2;
++        GLfloat vertex2_[] = { };
++        //Draw inertial links
++        for(size_t i=0; i<vpKFs.size(); i++)
++        {
++            KeyFrame* pKFi = vpKFs[i];
++            Eigen::Vector3f Ow = pKFi->GetCameraCenter();
++            KeyFrame* pNext = pKFi->mNextKF;
++            if(pNext)
++            {
++                Eigen::Vector3f Owp = pNext->GetCameraCenter();
++                vertex2.push_back(Ow(0));
++                vertex2.push_back(Ow(1));
++                vertex2.push_back(Ow(2));
++                vertex2.push_back(Owp(0));
++                vertex2.push_back(Owp(1));
++                vertex2.push_back(Owp(2));
++            }
++        }
++        glEnableClientState(GL_VERTEX_ARRAY);
++        glEnableClientState(GL_COLOR_ARRAY);
++
++        if (vertex2.size() > 0)
++            glVertexPointer(3, GL_FLOAT, 0, vertex2.data());
++        else
++            glVertexPointer(3, GL_FLOAT, 0, vertex2_);
++
++        pangolin::glEngine().SetColor(0.0,1.0,0.0,1.0);   //set color    GREEN
++        glColorPointer(4, GL_FLOAT, 0, Color2);
++        glDrawArrays(GL_LINES, 0, vertex2.size() / 3);
++
++        glDisableClientState(GL_VERTEX_ARRAY);
++        glDisableClientState(GL_COLOR_ARRAY);
++#else                
+         glColor4f(1.0f,0.0f,0.0f,0.6f);
+         glBegin(GL_LINES);
+ 
+@@ -331,6 +629,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+         }
+ 
+         glEnd();
++#endif        
+     }
+ 
+     vector<Map*> vpMaps = mpAtlas->GetAllMaps();
+@@ -349,7 +648,94 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+                 KeyFrame* pKF = vpKFs[i];
+                 Eigen::Matrix4f Twc = pKF->GetPoseInverse().matrix();
+                 unsigned int index_color = pKF->mnOriginMapId;
++#ifdef HAVE_GLES_2
++                pangolin::glEngine().currentmatrix->push(pangolin::glEngine().currentmatrix->top());
++                pangolin::OpenGlMatrix TT;
++                memcpy(TT.m, Twc.data(), sizeof(float) * 16 );
++                TT.Multiply();
++                GLfloat color[3] = { 0 };
++                if(!vpKFs[i]->GetParent()) // It is the first KF in the map
++                {
++                    glLineWidth(mKeyFrameLineWidth*5);
++                    color[0] = 1.0f;
++                    color[1] = 0.0f;
++                    color[2] = 0.0f;
++                }
++                else
++                {
++                    glLineWidth(mKeyFrameLineWidth);
++                    color[0] = mfFrameColors[index_color][0];
++                    color[1] = mfFrameColors[index_color][1];
++                    color[2] = mfFrameColors[index_color][2];
++                }
+ 
++                GLfloat vertex[48] = { 0 };
++                vertex[0] = 0;
++                vertex[1] = 0;
++                vertex[2] = 0;
++                vertex[3] = w;
++                vertex[4] = h;
++                vertex[5] = z;
++                vertex[6] = 0;
++                vertex[7] = 0;
++                vertex[8] = 0;
++                vertex[9] = w;
++                vertex[10] = -h;
++                vertex[11] = z;
++                vertex[12] = 0;
++                vertex[13] = 0;
++                vertex[14] = 0;
++                vertex[15] = -w;
++                vertex[16] = -h;
++                vertex[17] = z;
++                vertex[18] = 0;
++                vertex[19] = 0;
++                vertex[20] = 0;
++                vertex[21] = -w;
++                vertex[22] = h;
++                vertex[23] = z;
++                vertex[24] = w;
++                vertex[25] = h;
++                vertex[26] = z;
++                vertex[27] = w;
++                vertex[28] = -h;
++                vertex[29] = z;
++
++                vertex[30] = -w;
++                vertex[31] = h;
++                vertex[32] = z;
++                vertex[33] = -w;
++                vertex[34] = -h;
++                vertex[35] = z;
++
++                vertex[36] = -w;
++                vertex[37] = h;
++                vertex[38] = z;
++                vertex[39] = w;
++                vertex[40] = h;
++                vertex[41] = z;
++
++                vertex[42] = -w;
++                vertex[43] = -h;
++                vertex[44] = z;
++                vertex[45] = w;
++                vertex[46] = -h;
++                vertex[47] = z;
++
++                pangolin::glEngine().SetColor(0.0,0.0,1.0,1.0);   //set color   bule
++                glEnableClientState(GL_VERTEX_ARRAY);
++                glEnableClientState(GL_COLOR_ARRAY);
++
++                glVertexPointer(3, GL_FLOAT, 0, vertex);
++                glColorPointer(3, GL_FLOAT, 0, color);
++                glDrawArrays(GL_LINES, 0, 16);
++
++                glDisableClientState(GL_VERTEX_ARRAY);
++                glDisableClientState(GL_COLOR_ARRAY);
++
++                pangolin::glEngine().currentmatrix->pop();
++                pangolin::glEngine().UpdateMatrices();
++#else
+                 glPushMatrix();
+ 
+                 glMultMatrixf((GLfloat*)Twc.data());
+@@ -390,6 +776,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
+                 glEnd();
+ 
+                 glPopMatrix();
++#endif                
+             }
+         }
+     }
+@@ -401,15 +788,85 @@ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
+     const float h = w*0.75;
+     const float z = w*0.6;
+ 
+-    glPushMatrix();
+ 
+ #ifdef HAVE_GLES
+-        glMultMatrixf(Twc.m);
++    pangolin::glEngine().currentmatrix->push(pangolin::glEngine().currentmatrix->top());
++    Twc.Multiply();
+ #else
+-        glMultMatrixd(Twc.m);
++    glPushMatrix();
++    glMultMatrixd(Twc.m);
+ #endif
+ 
+     glLineWidth(mCameraLineWidth);
++#ifdef HAVE_GLES_2
++    GLfloat color[] = {0.0f,1.0f,0.0f};
++    GLfloat vertex[48] = { 0 };
++    vertex[0] = 0;
++    vertex[1] = 0;
++    vertex[2] = 0;
++    vertex[3] = w;
++    vertex[4] = h;
++    vertex[5] = z;
++    vertex[6] = 0;
++    vertex[7] = 0;
++    vertex[8] = 0;
++    vertex[9] = w;
++    vertex[10] = -h;
++    vertex[11] = z;
++    vertex[12] = 0;
++    vertex[13] = 0;
++    vertex[14] = 0;
++    vertex[15] = -w;
++    vertex[16] = -h;
++    vertex[17] = z;
++    vertex[18] = 0;
++    vertex[19] = 0;
++    vertex[20] = 0;
++    vertex[21] = -w;
++    vertex[22] = h;
++    vertex[23] = z;
++    vertex[24] = w;
++    vertex[25] = h;
++    vertex[26] = z;
++    vertex[27] = w;
++    vertex[28] = -h;
++    vertex[29] = z;
++
++    vertex[30] = -w;
++    vertex[31] = h;
++    vertex[32] = z;
++    vertex[33] = -w;
++    vertex[34] = -h;
++    vertex[35] = z;
++
++    vertex[36] = -w;
++    vertex[37] = h;
++    vertex[38] = z;
++    vertex[39] = w;
++    vertex[40] = h;
++    vertex[41] = z;
++
++    vertex[42] = -w;
++    vertex[43] = -h;
++    vertex[44] = z;
++    vertex[45] = w;
++    vertex[46] = -h;
++    vertex[47] = z;
++    
++    glEnableClientState(GL_VERTEX_ARRAY);
++    glEnableClientState(GL_COLOR_ARRAY);
++
++    pangolin::glEngine().SetColor(0.0,1.0,0.0,1.0);   //set color    GREEN
++    glVertexPointer(3, GL_FLOAT, 0, vertex);
++    glColorPointer(3, GL_FLOAT, 0, color);
++    glDrawArrays(GL_LINES, 0, 16);
++
++    glDisableClientState(GL_VERTEX_ARRAY);
++    glDisableClientState(GL_COLOR_ARRAY);
++
++    pangolin::glEngine().currentmatrix->pop();
++    pangolin::glEngine().UpdateMatrices();
++#else    
+     glColor3f(0.0f,1.0f,0.0f);
+     glBegin(GL_LINES);
+     glVertex3f(0,0,0);
+@@ -435,6 +892,7 @@ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
+     glEnd();
+ 
+     glPopMatrix();
++#endif    
+ }
+ 
+ 
+diff --git a/src/System.cc b/src/System.cc
+index 60d9c51..97ec683 100644
+--- a/src/System.cc
++++ b/src/System.cc
+@@ -17,7 +17,7 @@
+ */
+ 
+ 
+-
++#include <unistd.h>
+ #include "System.h"
+ #include "Converter.h"
+ #include <thread>
+@@ -45,7 +45,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
+ {
+     // Output welcome message
+     cout << endl <<
+-    "ORB-SLAM3 Copyright (C) 2017-2020 Carlos Campos, Richard Elvira, Juan J. Gómez, José M.M. Montiel and Juan D. Tardós, University of Zaragoza." << endl <<
++    "ORB-SLAM3 Copyright (C) 2017-2021 Carlos Campos, Richard Elvira, Juan J. Gómez, José M.M. Montiel and Juan D. Tardós, University of Zaragoza." << endl <<
+     "ORB-SLAM2 Copyright (C) 2014-2016 Raúl Mur-Artal, José M.M. Montiel and Juan D. Tardós, University of Zaragoza." << endl <<
+     "This program comes with ABSOLUTELY NO WARRANTY;" << endl  <<
+     "This is free software, and you are welcome to redistribute it" << endl <<
+diff --git a/src/Tracking.cc b/src/Tracking.cc
+index 5191451..a407d6d 100644
+--- a/src/Tracking.cc
++++ b/src/Tracking.cc
+@@ -16,7 +16,7 @@
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include "Tracking.h"
+ 
+ #include "ORBmatcher.h"
+diff --git a/src/Viewer.cc b/src/Viewer.cc
+index 18f23f0..c0ecb6b 100644
+--- a/src/Viewer.cc
++++ b/src/Viewer.cc
+@@ -16,7 +16,7 @@
+ * If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include "Viewer.h"
+ #include <pangolin/pangolin.h>
+ 
+-- 
+2.35.1
+

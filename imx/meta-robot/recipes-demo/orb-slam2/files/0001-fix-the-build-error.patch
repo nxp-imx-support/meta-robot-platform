@@ -1,0 +1,298 @@
+From fefba4a21e993bac227d617a1a30c4a2b04ca67f Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Mon, 18 May 2020 16:47:08 +0800
+Subject: [PATCH] fix the build error
+
+---
+ CMakeLists.txt                   | 25 ++++++++++++++-----------
+ Examples/Monocular/mono_euroc.cc |  2 +-
+ Examples/Monocular/mono_kitti.cc |  2 +-
+ Examples/Monocular/mono_tum.cc   |  2 +-
+ Examples/RGB-D/rgbd_tum.cc       |  2 +-
+ Examples/Stereo/stereo_euroc.cc  |  2 +-
+ Examples/Stereo/stereo_kitti.cc  |  2 +-
+ Thirdparty/DBoW2/CMakeLists.txt  |  4 ++--
+ Thirdparty/g2o/CMakeLists.txt    |  4 ++--
+ include/LoopClosing.h            |  2 +-
+ src/LocalMapping.cc              |  2 +-
+ src/LoopClosing.cc               |  1 +
+ src/System.cc                    |  2 +-
+ src/Tracking.cc                  |  2 +-
+ src/Viewer.cc                    |  2 +-
+ 15 files changed, 30 insertions(+), 26 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 08a8af4..222cfae 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,5 +1,5 @@
+ cmake_minimum_required(VERSION 2.8)
+-project(ORB_SLAM2)
++project(ORB-SLAM2)
+ 
+ IF(NOT CMAKE_BUILD_TYPE)
+   SET(CMAKE_BUILD_TYPE Release)
+@@ -7,8 +7,8 @@ ENDIF()
+ 
+ MESSAGE("Build type: " ${CMAKE_BUILD_TYPE})
+ 
+-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3 -march=native ")
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall   -O3 -march=native")
++set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall   -O3")
+ 
+ # Check C++11 or C++0x support
+ include(CheckCXXCompilerFlag)
+@@ -28,6 +28,9 @@ endif()
+ 
+ LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
+ 
++add_subdirectory("Thirdparty/DBoW2")
++add_subdirectory("Thirdparty/g2o")
++
+ find_package(OpenCV 3.0 QUIET)
+ if(NOT OpenCV_FOUND)
+    find_package(OpenCV 2.4.3 QUIET)
+@@ -43,7 +46,7 @@ include_directories(
+ ${PROJECT_SOURCE_DIR}
+ ${PROJECT_SOURCE_DIR}/include
+ ${EIGEN3_INCLUDE_DIR}
+-${Pangolin_INCLUDE_DIRS}
++${Pangolin_INCLUDE_DIR}
+ )
+ 
+ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
+@@ -73,7 +76,7 @@ src/Viewer.cc
+ target_link_libraries(${PROJECT_NAME}
+ ${OpenCV_LIBS}
+ ${EIGEN3_LIBS}
+-${Pangolin_LIBRARIES}
++${Pangolin_LIBRARY}
+ ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
+ ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+ )
+@@ -84,30 +87,30 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/RGB-D)
+ 
+ add_executable(rgbd_tum
+ Examples/RGB-D/rgbd_tum.cc)
+-target_link_libraries(rgbd_tum ${PROJECT_NAME})
++target_link_libraries(rgbd_tum ${PROJECT_NAME} GL)
+ 
+ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Stereo)
+ 
+ add_executable(stereo_kitti
+ Examples/Stereo/stereo_kitti.cc)
+-target_link_libraries(stereo_kitti ${PROJECT_NAME})
++target_link_libraries(stereo_kitti ${PROJECT_NAME} GL)
+ 
+ add_executable(stereo_euroc
+ Examples/Stereo/stereo_euroc.cc)
+-target_link_libraries(stereo_euroc ${PROJECT_NAME})
++target_link_libraries(stereo_euroc ${PROJECT_NAME} GL)
+ 
+ 
+ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Monocular)
+ 
+ add_executable(mono_tum
+ Examples/Monocular/mono_tum.cc)
+-target_link_libraries(mono_tum ${PROJECT_NAME})
++target_link_libraries(mono_tum ${PROJECT_NAME} GL)
+ 
+ add_executable(mono_kitti
+ Examples/Monocular/mono_kitti.cc)
+-target_link_libraries(mono_kitti ${PROJECT_NAME})
++target_link_libraries(mono_kitti ${PROJECT_NAME} GL)
+ 
+ add_executable(mono_euroc
+ Examples/Monocular/mono_euroc.cc)
+-target_link_libraries(mono_euroc ${PROJECT_NAME})
++target_link_libraries(mono_euroc ${PROJECT_NAME} GL)
+ 
+diff --git a/Examples/Monocular/mono_euroc.cc b/Examples/Monocular/mono_euroc.cc
+index 4bcb90f..db97e2e 100644
+--- a/Examples/Monocular/mono_euroc.cc
++++ b/Examples/Monocular/mono_euroc.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Monocular/mono_kitti.cc b/Examples/Monocular/mono_kitti.cc
+index f2f7b3e..f0bfa67 100644
+--- a/Examples/Monocular/mono_kitti.cc
++++ b/Examples/Monocular/mono_kitti.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Monocular/mono_tum.cc b/Examples/Monocular/mono_tum.cc
+index 09a2afc..93f7fc7 100644
+--- a/Examples/Monocular/mono_tum.cc
++++ b/Examples/Monocular/mono_tum.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/RGB-D/rgbd_tum.cc b/Examples/RGB-D/rgbd_tum.cc
+index 001199d..6f69f61 100644
+--- a/Examples/RGB-D/rgbd_tum.cc
++++ b/Examples/RGB-D/rgbd_tum.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Stereo/stereo_euroc.cc b/Examples/Stereo/stereo_euroc.cc
+index 6bc09c5..2ffc533 100644
+--- a/Examples/Stereo/stereo_euroc.cc
++++ b/Examples/Stereo/stereo_euroc.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Examples/Stereo/stereo_kitti.cc b/Examples/Stereo/stereo_kitti.cc
+index cb8bc40..d7f3d3f 100644
+--- a/Examples/Stereo/stereo_kitti.cc
++++ b/Examples/Stereo/stereo_kitti.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include<iostream>
+ #include<algorithm>
+ #include<fstream>
+diff --git a/Thirdparty/DBoW2/CMakeLists.txt b/Thirdparty/DBoW2/CMakeLists.txt
+index 0eb5126..2e472d9 100644
+--- a/Thirdparty/DBoW2/CMakeLists.txt
++++ b/Thirdparty/DBoW2/CMakeLists.txt
+@@ -1,8 +1,8 @@
+ cmake_minimum_required(VERSION 2.8)
+ project(DBoW2)
+ 
+-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3 -march=native ")
+-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall  -O3 -march=native")
++set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}  -Wall  -O3")
++set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall  -O3")
+ 
+ set(HDRS_DBOW2
+   DBoW2/BowVector.h
+diff --git a/Thirdparty/g2o/CMakeLists.txt b/Thirdparty/g2o/CMakeLists.txt
+index 620e688..207ac72 100644
+--- a/Thirdparty/g2o/CMakeLists.txt
++++ b/Thirdparty/g2o/CMakeLists.txt
+@@ -54,8 +54,8 @@ IF(OPENMP_FOUND AND G2O_USE_OPENMP)
+ ENDIF(OPENMP_FOUND AND G2O_USE_OPENMP)
+ 
+ # Compiler specific options for gcc
+-SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native") 
+-SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native") 
++SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3") 
++SET(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3") 
+ 
+ # activate warnings !!!
+ SET(g2o_C_FLAGS "${g2o_C_FLAGS} -Wall -W")
+diff --git a/include/LoopClosing.h b/include/LoopClosing.h
+index 7eb0416..c3adf13 100644
+--- a/include/LoopClosing.h
++++ b/include/LoopClosing.h
+@@ -47,7 +47,7 @@ public:
+ 
+     typedef pair<set<KeyFrame*>,int> ConsistentGroup;    
+     typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>,
+-        Eigen::aligned_allocator<std::pair<const KeyFrame*, g2o::Sim3> > > KeyFrameAndPose;
++        Eigen::aligned_allocator<std::pair<KeyFrame* const, g2o::Sim3> > > KeyFrameAndPose;
+ 
+ public:
+ 
+diff --git a/src/LocalMapping.cc b/src/LocalMapping.cc
+index 6c87a6e..e20b6bc 100644
+--- a/src/LocalMapping.cc
++++ b/src/LocalMapping.cc
+@@ -17,7 +17,7 @@
+ * You should have received a copy of the GNU General Public License
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include "LocalMapping.h"
+ #include "LoopClosing.h"
+ #include "ORBmatcher.h"
+diff --git a/src/LoopClosing.cc b/src/LoopClosing.cc
+index 5e317dd..8bc9e51 100644
+--- a/src/LoopClosing.cc
++++ b/src/LoopClosing.cc
+@@ -17,6 +17,7 @@
+ * You should have received a copy of the GNU General Public License
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
++#include <unistd.h>
+ 
+ #include "LoopClosing.h"
+ 
+diff --git a/src/System.cc b/src/System.cc
+index 8df4157..54ad6f7 100644
+--- a/src/System.cc
++++ b/src/System.cc
+@@ -19,7 +19,7 @@
+ */
+ 
+ 
+-
++#include <unistd.h>
+ #include "System.h"
+ #include "Converter.h"
+ #include <thread>
+diff --git a/src/Tracking.cc b/src/Tracking.cc
+index 2273b2c..a98fdf5 100644
+--- a/src/Tracking.cc
++++ b/src/Tracking.cc
+@@ -18,7 +18,7 @@
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-
++#include <unistd.h>
+ #include "Tracking.h"
+ 
+ #include<opencv2/core/core.hpp>
+diff --git a/src/Viewer.cc b/src/Viewer.cc
+index dec3204..f30c43f 100644
+--- a/src/Viewer.cc
++++ b/src/Viewer.cc
+@@ -17,7 +17,7 @@
+ * You should have received a copy of the GNU General Public License
+ * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
+ */
+-
++#include <unistd.h>
+ #include "Viewer.h"
+ #include <pangolin/pangolin.h>
+ 
+-- 
+2.7.4
+

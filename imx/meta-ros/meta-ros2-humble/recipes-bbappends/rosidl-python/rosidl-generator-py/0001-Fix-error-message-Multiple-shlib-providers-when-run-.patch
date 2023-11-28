@@ -1,0 +1,40 @@
+From d6d7eee969f45deb5ec8c790d539db450587d016 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 3 Nov 2023 13:36:00 +0800
+Subject: [PATCH] Fix error message "Multiple shlib providers" when run
+ do_package task
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ cmake/rosidl_generator_py_generate_interfaces.cmake | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/cmake/rosidl_generator_py_generate_interfaces.cmake b/cmake/rosidl_generator_py_generate_interfaces.cmake
+index a6d8263..726b661 100644
+--- a/cmake/rosidl_generator_py_generate_interfaces.cmake
++++ b/cmake/rosidl_generator_py_generate_interfaces.cmake
+@@ -121,7 +121,8 @@ rosidl_write_generator_arguments(
+ )
+ 
+ if(NOT rosidl_generate_interfaces_SKIP_INSTALL)
+-  ament_python_install_package(${PROJECT_NAME} PACKAGE_DIR "${_output_path}")
++  ament_python_install_module("${_output_path}/__init__.py"
++    DESTINATION_SUFFIX "${PROJECT_NAME}")
+ endif()
+ 
+ set(_target_suffix "__py")
+@@ -308,6 +309,11 @@ if(NOT rosidl_generate_interfaces_SKIP_INSTALL)
+   # Export this target so downstream interface packages can depend on it
+   rosidl_export_typesupport_targets("${rosidl_generator_py_suffix}" "${_target_name_lib}")
+   ament_export_targets(export_${_target_name_lib})
++
++  foreach(_generated_py_dir ${_generated_py_dirs})
++    install(DIRECTORY "${_output_path}/${_generated_py_dir}"
++      DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
++  endforeach()
+ endif()
+ 
+ if(BUILD_TESTING AND rosidl_generate_interfaces_ADD_LINTER_TESTS)
+-- 
+2.35.1
+

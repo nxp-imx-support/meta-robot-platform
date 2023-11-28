@@ -1,0 +1,653 @@
+From 89ff4872a7cf152f0d4a83fa015dec633e9b0e45 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Wed, 22 May 2019 14:07:36 +0800
+Subject: [PATCH] tuning for Vivante OpenCL Device GPU
+
+---
+ src/clpp11.hpp                                              | 1 +
+ src/database/kernels/copy/copy_32.hpp                       | 9 +++++++++
+ src/database/kernels/copy/copy_3232.hpp                     | 9 +++++++++
+ src/database/kernels/gemm_routine/gemm_routine_32.hpp       | 9 +++++++++
+ src/database/kernels/gemm_routine/gemm_routine_3232.hpp     | 8 ++++++++
+ src/database/kernels/invert/invert_32.hpp                   | 9 +++++++++
+ src/database/kernels/invert/invert_3232.hpp                 | 9 +++++++++
+ src/database/kernels/pad/pad_32.hpp                         | 9 +++++++++
+ src/database/kernels/pad/pad_3232.hpp                       | 9 +++++++++
+ src/database/kernels/padtranspose/padtranspose_32.hpp       | 9 +++++++++
+ src/database/kernels/padtranspose/padtranspose_3232.hpp     | 9 +++++++++
+ src/database/kernels/transpose/transpose_32.hpp             | 9 +++++++++
+ src/database/kernels/transpose/transpose_3232.hpp           | 9 +++++++++
+ src/database/kernels/trsv_routine/trsv_routine_32.hpp       | 9 +++++++++
+ src/database/kernels/trsv_routine/trsv_routine_3232.hpp     | 9 +++++++++
+ src/database/kernels/xaxpy/xaxpy_32.hpp                     | 9 +++++++++
+ src/database/kernels/xaxpy/xaxpy_3232.hpp                   | 9 +++++++++
+ src/database/kernels/xdot/xdot_32.hpp                       | 9 +++++++++
+ src/database/kernels/xdot/xdot_3232.hpp                     | 9 +++++++++
+ src/database/kernels/xgemm/xgemm_32.hpp                     | 9 +++++++++
+ src/database/kernels/xgemm/xgemm_3232.hpp                   | 9 +++++++++
+ src/database/kernels/xgemm_direct/xgemm_direct_32.hpp       | 9 +++++++++
+ src/database/kernels/xgemm_direct/xgemm_direct_3232.hpp     | 9 +++++++++
+ src/database/kernels/xgemv/xgemv_32.hpp                     | 9 +++++++++
+ src/database/kernels/xgemv/xgemv_3232.hpp                   | 9 +++++++++
+ src/database/kernels/xgemv_fast/xgemv_fast_32.hpp           | 9 +++++++++
+ src/database/kernels/xgemv_fast/xgemv_fast_3232.hpp         | 9 +++++++++
+ src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_32.hpp   | 9 +++++++++
+ src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_3232.hpp | 9 +++++++++
+ src/database/kernels/xger/xger_32.hpp                       | 9 +++++++++
+ src/database/kernels/xger/xger_3232.hpp                     | 9 +++++++++
+ 31 files changed, 270 insertions(+)
+
+diff --git a/src/clpp11.hpp b/src/clpp11.hpp
+index 9446499..2906569 100644
+--- a/src/clpp11.hpp
++++ b/src/clpp11.hpp
+@@ -337,6 +337,7 @@ class Device {
+                                 Vendor() == "Intel(R) Corporation"; }
+   bool IsARM() const { return Vendor() == "ARM"; }
+   bool IsQualcomm() const { return Vendor() == "QUALCOMM"; }
++  bool IsVivante() const { return Vendor() == "Vivante Corporation"; }
+ 
+   // Platform specific extensions
+   std::string AMDBoardName() const { // check for 'cl_amd_device_attribute_query' first
+diff --git a/src/database/kernels/copy/copy_32.hpp b/src/database/kernels/copy/copy_32.hpp
+index 7b7312c..935734b 100644
+--- a/src/database/kernels/copy/copy_32.hpp
++++ b/src/database/kernels/copy/copy_32.hpp
+@@ -161,6 +161,15 @@ const DatabaseEntry CopySingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 8, 8, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 32, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 8, 8, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/copy/copy_3232.hpp b/src/database/kernels/copy/copy_3232.hpp
+index 83ba810..b6ac474 100644
+--- a/src/database/kernels/copy/copy_3232.hpp
++++ b/src/database/kernels/copy/copy_3232.hpp
+@@ -156,6 +156,15 @@ const DatabaseEntry CopyComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 16, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 32, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 16, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/gemm_routine/gemm_routine_32.hpp b/src/database/kernels/gemm_routine/gemm_routine_32.hpp
+index ba0cc5a..e96f3b2 100644
+--- a/src/database/kernels/gemm_routine/gemm_routine_32.hpp
++++ b/src/database/kernels/gemm_routine/gemm_routine_32.hpp
+@@ -60,6 +60,15 @@ const DatabaseEntry GemmRoutineSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/gemm_routine/gemm_routine_3232.hpp b/src/database/kernels/gemm_routine/gemm_routine_3232.hpp
+index 9977bb7..f1f8489 100644
+--- a/src/database/kernels/gemm_routine/gemm_routine_3232.hpp
++++ b/src/database/kernels/gemm_routine/gemm_routine_3232.hpp
+@@ -47,6 +47,14 @@ const DatabaseEntry GemmRoutineComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/invert/invert_32.hpp b/src/database/kernels/invert/invert_32.hpp
+index d550e3b..87e23ca 100644
+--- a/src/database/kernels/invert/invert_32.hpp
++++ b/src/database/kernels/invert/invert_32.hpp
+@@ -49,6 +49,15 @@ const DatabaseEntry InvertSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 16, 1, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 16, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 16, 1, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/invert/invert_3232.hpp b/src/database/kernels/invert/invert_3232.hpp
+index d110390..7bfe716 100644
+--- a/src/database/kernels/invert/invert_3232.hpp
++++ b/src/database/kernels/invert/invert_3232.hpp
+@@ -48,6 +48,15 @@ const DatabaseEntry InvertComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 16, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 16, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 16, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/pad/pad_32.hpp b/src/database/kernels/pad/pad_32.hpp
+index 92fd2db..bdbe465 100644
+--- a/src/database/kernels/pad/pad_32.hpp
++++ b/src/database/kernels/pad/pad_32.hpp
+@@ -161,6 +161,15 @@ const DatabaseEntry PadSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 8, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 32, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 8, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/pad/pad_3232.hpp b/src/database/kernels/pad/pad_3232.hpp
+index 08ed21a..48f0b7f 100644
+--- a/src/database/kernels/pad/pad_3232.hpp
++++ b/src/database/kernels/pad/pad_3232.hpp
+@@ -158,6 +158,15 @@ const DatabaseEntry PadComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 8, 16, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 8, 16, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/padtranspose/padtranspose_32.hpp b/src/database/kernels/padtranspose/padtranspose_32.hpp
+index 7ac7dd1..9da63ed 100644
+--- a/src/database/kernels/padtranspose/padtranspose_32.hpp
++++ b/src/database/kernels/padtranspose/padtranspose_32.hpp
+@@ -160,6 +160,15 @@ const DatabaseEntry PadtransposeSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 0, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 1, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 0, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/padtranspose/padtranspose_3232.hpp b/src/database/kernels/padtranspose/padtranspose_3232.hpp
+index 32506c1..f026e18 100644
+--- a/src/database/kernels/padtranspose/padtranspose_3232.hpp
++++ b/src/database/kernels/padtranspose/padtranspose_3232.hpp
+@@ -158,6 +158,15 @@ const DatabaseEntry PadtransposeComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 1, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 0, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 1, 8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/transpose/transpose_32.hpp b/src/database/kernels/transpose/transpose_32.hpp
+index 22ddb2c..bbfa42c 100644
+--- a/src/database/kernels/transpose/transpose_32.hpp
++++ b/src/database/kernels/transpose/transpose_32.hpp
+@@ -160,6 +160,15 @@ const DatabaseEntry TransposeSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 8, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 4, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/transpose/transpose_3232.hpp b/src/database/kernels/transpose/transpose_3232.hpp
+index b0de29f..ee73060 100644
+--- a/src/database/kernels/transpose/transpose_3232.hpp
++++ b/src/database/kernels/transpose/transpose_3232.hpp
+@@ -150,6 +150,15 @@ const DatabaseEntry TransposeComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 4, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 16, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 4, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/trsv_routine/trsv_routine_32.hpp b/src/database/kernels/trsv_routine/trsv_routine_32.hpp
+index 7fc71f5..991834c 100644
+--- a/src/database/kernels/trsv_routine/trsv_routine_32.hpp
++++ b/src/database/kernels/trsv_routine/trsv_routine_32.hpp
+@@ -41,6 +41,15 @@ const DatabaseEntry TrsvRoutineSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/trsv_routine/trsv_routine_3232.hpp b/src/database/kernels/trsv_routine/trsv_routine_3232.hpp
+index 221f12c..8da489b 100644
+--- a/src/database/kernels/trsv_routine/trsv_routine_3232.hpp
++++ b/src/database/kernels/trsv_routine/trsv_routine_3232.hpp
+@@ -40,6 +40,15 @@ const DatabaseEntry TrsvRoutineComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xaxpy/xaxpy_32.hpp b/src/database/kernels/xaxpy/xaxpy_32.hpp
+index d41d4fc..d2da819 100644
+--- a/src/database/kernels/xaxpy/xaxpy_32.hpp
++++ b/src/database/kernels/xaxpy/xaxpy_32.hpp
+@@ -161,6 +161,15 @@ const DatabaseEntry XaxpySingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 2, 256, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 2, 128, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 2, 256, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xaxpy/xaxpy_3232.hpp b/src/database/kernels/xaxpy/xaxpy_3232.hpp
+index 25cd363..f79d794 100644
+--- a/src/database/kernels/xaxpy/xaxpy_3232.hpp
++++ b/src/database/kernels/xaxpy/xaxpy_3232.hpp
+@@ -158,6 +158,15 @@ const DatabaseEntry XaxpyComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 2, 512, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 1, 128, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 2, 512, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xdot/xdot_32.hpp b/src/database/kernels/xdot/xdot_32.hpp
+index 2b7bc72..20fb1ca 100644
+--- a/src/database/kernels/xdot/xdot_32.hpp
++++ b/src/database/kernels/xdot/xdot_32.hpp
+@@ -144,6 +144,15 @@ const DatabaseEntry XdotSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xdot/xdot_3232.hpp b/src/database/kernels/xdot/xdot_3232.hpp
+index e655e17..892c0b7 100644
+--- a/src/database/kernels/xdot/xdot_3232.hpp
++++ b/src/database/kernels/xdot/xdot_3232.hpp
+@@ -141,6 +141,15 @@ const DatabaseEntry XdotComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 256, 256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 256, 256, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemm/xgemm_32.hpp b/src/database/kernels/xgemm/xgemm_32.hpp
+index d75758e..b9353a1 100644
+--- a/src/database/kernels/xgemm/xgemm_32.hpp
++++ b/src/database/kernels/xgemm/xgemm_32.hpp
+@@ -161,6 +161,15 @@ const DatabaseEntry XgemmSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 1, 4, 1, 1, 4, 4, 16, 4, 4, 16, 0, 0, 0, 0, 4, 4 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 1, 4, 1, 1, 4, 4, 16, 8, 8, 32, 0, 0, 0, 0, 4, 4 } },
++          { kDeviceNameDefault                                        , Params{ 1, 4, 1, 1, 4, 4, 16, 4, 4, 16, 0, 0, 0, 0, 4, 4 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemm/xgemm_3232.hpp b/src/database/kernels/xgemm/xgemm_3232.hpp
+index 9c0b70b..63d4634 100644
+--- a/src/database/kernels/xgemm/xgemm_3232.hpp
++++ b/src/database/kernels/xgemm/xgemm_3232.hpp
+@@ -150,6 +150,15 @@ const DatabaseEntry XgemmComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 0, 1, 32, 2, 8, 8, 16, 8, 8, 32, 1, 1, 0, 0, 1, 4 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 0, 1, 32, 2, 8, 8, 16, 8, 8, 32, 1, 1, 0, 0, 1, 4 } },
++          { kDeviceNameDefault                                        , Params{ 0, 1, 32, 2, 8, 8, 16, 8, 8, 32, 1, 1, 0, 0, 1, 4 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemm_direct/xgemm_direct_32.hpp b/src/database/kernels/xgemm_direct/xgemm_direct_32.hpp
+index 146018d..fbc0854 100644
+--- a/src/database/kernels/xgemm_direct/xgemm_direct_32.hpp
++++ b/src/database/kernels/xgemm_direct/xgemm_direct_32.hpp
+@@ -120,6 +120,15 @@ const DatabaseEntry XgemmDirectSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 2, 8, 8, 8, 8, 1, 1, 1, 1, 16, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 2, 8, 8, 8, 8, 1, 1, 1, 1, 16, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 2, 8, 8, 8, 8, 1, 1, 1, 1, 16, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemm_direct/xgemm_direct_3232.hpp b/src/database/kernels/xgemm_direct/xgemm_direct_3232.hpp
+index 6dd95b3..3dfa76a 100644
+--- a/src/database/kernels/xgemm_direct/xgemm_direct_3232.hpp
++++ b/src/database/kernels/xgemm_direct/xgemm_direct_3232.hpp
+@@ -105,6 +105,15 @@ const DatabaseEntry XgemmDirectComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 2, 8, 8, 16, 16, 1, 1, 1, 1, 16, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 2, 16, 16, 8, 8, 1, 1, 1, 1, 16, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 2, 8, 8, 16, 16, 1, 1, 1, 1, 16, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemv/xgemv_32.hpp b/src/database/kernels/xgemv/xgemv_32.hpp
+index 350c3ad..ba8f98e 100644
+--- a/src/database/kernels/xgemv/xgemv_32.hpp
++++ b/src/database/kernels/xgemv/xgemv_32.hpp
+@@ -159,6 +159,15 @@ const DatabaseEntry XgemvSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemv/xgemv_3232.hpp b/src/database/kernels/xgemv/xgemv_3232.hpp
+index 2b4328b..d66a7b6 100644
+--- a/src/database/kernels/xgemv/xgemv_3232.hpp
++++ b/src/database/kernels/xgemv/xgemv_3232.hpp
+@@ -144,6 +144,15 @@ const DatabaseEntry XgemvComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 32, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemv_fast/xgemv_fast_32.hpp b/src/database/kernels/xgemv_fast/xgemv_fast_32.hpp
+index 351973a..88daadd 100644
+--- a/src/database/kernels/xgemv_fast/xgemv_fast_32.hpp
++++ b/src/database/kernels/xgemv_fast/xgemv_fast_32.hpp
+@@ -159,6 +159,15 @@ const DatabaseEntry XgemvFastSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 4, 16, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 4, 128, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 4, 16, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemv_fast/xgemv_fast_3232.hpp b/src/database/kernels/xgemv_fast/xgemv_fast_3232.hpp
+index e9928b2..f5485ed 100644
+--- a/src/database/kernels/xgemv_fast/xgemv_fast_3232.hpp
++++ b/src/database/kernels/xgemv_fast/xgemv_fast_3232.hpp
+@@ -127,6 +127,15 @@ const DatabaseEntry XgemvFastComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 4, 32, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 4, 64, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 4, 32, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_32.hpp b/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_32.hpp
+index cf1b4e5..8bb139e 100644
+--- a/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_32.hpp
++++ b/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_32.hpp
+@@ -122,6 +122,15 @@ const DatabaseEntry XgemvFastRotSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 8, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 8, 64, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 8, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_3232.hpp b/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_3232.hpp
+index bf78083..b2f6af8 100644
+--- a/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_3232.hpp
++++ b/src/database/kernels/xgemv_fast_rot/xgemv_fast_rot_3232.hpp
+@@ -95,6 +95,15 @@ const DatabaseEntry XgemvFastRotComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 8, 16, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 8, 32, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 8, 16, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xger/xger_32.hpp b/src/database/kernels/xger/xger_32.hpp
+index 43f64f1..d933d09 100644
+--- a/src/database/kernels/xger/xger_32.hpp
++++ b/src/database/kernels/xger/xger_32.hpp
+@@ -147,6 +147,15 @@ const DatabaseEntry XgerSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 32, 32, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 16, 32, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 32, 32, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+diff --git a/src/database/kernels/xger/xger_3232.hpp b/src/database/kernels/xger/xger_3232.hpp
+index 763f2ca..118200c 100644
+--- a/src/database/kernels/xger/xger_3232.hpp
++++ b/src/database/kernels/xger/xger_3232.hpp
+@@ -144,6 +144,15 @@ const DatabaseEntry XgerComplexSingle = {
+         } },
+       }
+     },
++    { // Vivante Corporation GPUs
++      kDeviceTypeGPU, "Vivante Corporation", {
++        { "default", {
++          { Name{"Vivante OpenCL Device GC7000L.6214.0000           "}, Params{ 128, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { Name{"Vivante OpenCL Device GC7000XSVX.6009.0000        "}, Params{ 64, 16, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++          { kDeviceNameDefault                                        , Params{ 128, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } },
++        } },
++      }
++    },
+     { // Default
+       kDeviceTypeAll, "default", {
+         { "default", {
+-- 
+2.7.4
+

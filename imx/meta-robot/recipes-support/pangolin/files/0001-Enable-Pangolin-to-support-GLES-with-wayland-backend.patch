@@ -1,0 +1,1041 @@
+From 4efacb04d0daa7b64d77e99d76a5fd0f52e84780 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Mon, 16 Jan 2023 13:10:00 +0800
+Subject: [PATCH] Enable Pangolin to support GLES with wayland backend by use
+ GLFW instead of GLEW
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt                               |  16 +-
+ CMakeModules/SetPlatformVars.cmake           |   7 +-
+ examples/CMakeLists.txt                      |  38 ++---
+ examples/HelloPangolin/main.cpp              |   2 +
+ examples/HelloPangolinOffscreen/main.cpp     |   2 +-
+ examples/HelloPangolinThreads/CMakeLists.txt |   2 +-
+ include/pangolin/gl/colour.h                 |   1 +
+ include/pangolin/gl/compat/gl2engine.h       |  18 ++-
+ include/pangolin/gl/compat/gl_es_compat.h    |  21 ++-
+ include/pangolin/gl/gl.hpp                   |   4 +-
+ include/pangolin/gl/glchar.h                 |   1 +
+ include/pangolin/gl/gldraw.h                 |  18 +++
+ include/pangolin/gl/glplatform.h             |  12 +-
+ include/pangolin/gl/glvbo.h                  |   8 +
+ include/pangolin/scene/axis.h                |  12 +-
+ include/pangolin/scene/scenehandler.h        |   2 +
+ src/CMakeLists.txt                           |  64 +++++---
+ src/PangolinConfig.cmake.in                  |  18 ++-
+ src/config.h.in                              |   1 +
+ src/display/device/display_glfw_wayland.cpp  | 153 +++++++++++++++++++
+ src/display/display.cpp                      |   2 +-
+ src/display/image_view.cpp                   |  17 ++-
+ src/display/opengl_render_state.cpp          |  17 ++-
+ src/gl/gldraw.cpp                            |   8 +
+ src/gl/glpangoglu.cpp                        |   5 +
+ src/handler/handler.cpp                      |   6 +-
+ src/handler/handler_image.cpp                |   9 ++
+ 27 files changed, 393 insertions(+), 71 deletions(-)
+ create mode 100644 src/display/device/display_glfw_wayland.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 66badcca..75f17a6f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -17,9 +17,11 @@ SET(CPACK_PACKAGE_VERSION_MINOR ${PANGOLIN_VERSION_MINOR})
+ SET(CPACK_PACKAGE_VERSION_PATCH "0")
+ include(CPack)
+ 
+-option( BUILD_TESTS "Build Tests" ON )
+-option( BUILD_TOOLS "Build Examples" ON )
+-option( BUILD_EXAMPLES "Build Tools" ON )
++# just build example
++option( BUILD_TESTS "Build Tests" OFF )
++option( BUILD_EXAMPLES "Build Examples" ON )
++option( BUILD_TOOLS "Build Tools" OFF )
++
+ 
+ set (CMAKE_CXX_STANDARD 14)
+ 
+@@ -58,6 +60,14 @@ if(ANDROID)
+     set(ANDROID_PACKAGE_NAME "com.github.stevenlovegrove.pangolin")
+     include(AndroidUtils)
+ endif()
++#  if platform is imx, build gles2  !!!
++if(_IMX_LINUX_)                                
++    set(HAVE_GLES 1)
++    option(BUILD_FOR_GLES_2 "Build for OpenGL ES 2 instead of ES 1" ON )
++    if(BUILD_FOR_GLES_2)
++        set(HAVE_GLES_2 1)
++    endif()
++endif()
+ 
+ if(ANDROID OR IOS)
+     set(HAVE_GLES 1)
+diff --git a/CMakeModules/SetPlatformVars.cmake b/CMakeModules/SetPlatformVars.cmake
+index a07b35a2..bd0e8cd1 100644
+--- a/CMakeModules/SetPlatformVars.cmake
++++ b/CMakeModules/SetPlatformVars.cmake
+@@ -26,7 +26,12 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+ ENDIF()
+ 
+ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
+-    SET(_LINUX_ 1)
++# set embedded linux Flag
++    IF(${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch64")
++        SET(_IMX_LINUX_ 1)                      #aarch64 linux
++    ELSE()
++        SET(_LINUX_ 1)                          #x86 linux
++    ENDIF()
+ ENDIF()
+ 
+ IF(ANDROID)
+diff --git a/examples/CMakeLists.txt b/examples/CMakeLists.txt
+index e2caa611..abf351a6 100644
+--- a/examples/CMakeLists.txt
++++ b/examples/CMakeLists.txt
+@@ -1,33 +1,33 @@
+ # All examples depend on Pangolin GUI
+ if(BUILD_PANGOLIN_GUI)
+     add_subdirectory(HelloPangolin)
+-    add_subdirectory(HelloPangolinOffscreen)
++    # add_subdirectory(HelloPangolinOffscreen)
+     add_subdirectory(HelloPangolinThreads)
+-    add_subdirectory(SimpleMultiDisplay)
++    # add_subdirectory(SimpleMultiDisplay)
+     add_subdirectory(SimpleDisplayImage)
+-    add_subdirectory(SimpleScene)
++    # add_subdirectory(SimpleScene)
+ 
+-    if(NOT HAVE_GLES OR HAVE_GLES_2)
+-        add_subdirectory(SimplePlot)
+-    endif()
++    # if(NOT HAVE_GLES OR HAVE_GLES_2)
++    #     add_subdirectory(SimplePlot)
++    # endif()
+ 
+-    ## These samples require Pangolin Var support
+-    if(BUILD_PANGOLIN_VARS)
+-      add_subdirectory(SimpleDisplay)
++#     ## These samples require Pangolin Var support
++#     if(BUILD_PANGOLIN_VARS)
++#       add_subdirectory(SimpleDisplay)
+ 
+-      ## Video Samples require Pangolin Video support
++#       ## Video Samples require Pangolin Video support
+       if(BUILD_PANGOLIN_VIDEO)
+         add_subdirectory(SimpleVideo)
+-        add_subdirectory(SimpleRecord)
+-        add_subdirectory(SharedMemoryCamera)
++#         add_subdirectory(SimpleRecord)
++#         add_subdirectory(SharedMemoryCamera)
+       endif()
+ 
+-#      # This sample fails on many platforms, so exclude it for now,
+-#      # until we can create a better cmake test for support.
+-#      find_package(CUDA QUIET)
+-#      if( CUDA_FOUND )
+-#        add_subdirectory(VBODisplay)
+-#      endif()
++# #      # This sample fails on many platforms, so exclude it for now,
++# #      # until we can create a better cmake test for support.
++# #      find_package(CUDA QUIET)
++# #      if( CUDA_FOUND )
++# #        add_subdirectory(VBODisplay)
++# #      endif()
+ 
+-    endif()
++#     endif()
+ endif()
+diff --git a/examples/HelloPangolin/main.cpp b/examples/HelloPangolin/main.cpp
+index cc6de199..3f378030 100644
+--- a/examples/HelloPangolin/main.cpp
++++ b/examples/HelloPangolin/main.cpp
+@@ -17,6 +17,8 @@ int main( int /*argc*/, char** /*argv*/ )
+             .SetBounds(0.0, 1.0, 0.0, 1.0, -640.0f/480.0f)
+             .SetHandler(&handler);
+ 
++    GLenum prog = -1;
++
+     while( !pangolin::ShouldQuit() )
+     {
+         // Clear screen and activate view to render into
+diff --git a/examples/HelloPangolinOffscreen/main.cpp b/examples/HelloPangolinOffscreen/main.cpp
+index e26df9a3..c63cab15 100644
+--- a/examples/HelloPangolinOffscreen/main.cpp
++++ b/examples/HelloPangolinOffscreen/main.cpp
+@@ -40,7 +40,7 @@ int main( int /*argc*/, char** /*argv*/ )
+ 
+     fbo_buffer.Unbind();
+     // download and save the colour buffer
+-    color_buffer.Save("fbo.png", false);
++    //color_buffer.Save("fbo.png", false);
+ 
+     pangolin::QuitAll();
+     
+diff --git a/examples/HelloPangolinThreads/CMakeLists.txt b/examples/HelloPangolinThreads/CMakeLists.txt
+index 78f02a31..4ffc49c1 100644
+--- a/examples/HelloPangolinThreads/CMakeLists.txt
++++ b/examples/HelloPangolinThreads/CMakeLists.txt
+@@ -3,4 +3,4 @@ find_package(Pangolin 0.5 REQUIRED)
+ include_directories(${Pangolin_INCLUDE_DIRS})
+ 
+ add_executable(HelloPangolinThreads main.cpp)
+-target_link_libraries(HelloPangolinThreads ${Pangolin_LIBRARIES})
++target_link_libraries(HelloPangolinThreads ${Pangolin_LIBRARIES} -pthread)
+diff --git a/include/pangolin/gl/colour.h b/include/pangolin/gl/colour.h
+index 92bedf45..8c3e5425 100644
+--- a/include/pangolin/gl/colour.h
++++ b/include/pangolin/gl/colour.h
+@@ -28,6 +28,7 @@
+ #pragma once
+ 
+ #include <cmath>
++#include <limits>
+ 
+ #include <stdexcept>
+ 
+diff --git a/include/pangolin/gl/compat/gl2engine.h b/include/pangolin/gl/compat/gl2engine.h
+index 184aa60c..4d283d18 100644
+--- a/include/pangolin/gl/compat/gl2engine.h
++++ b/include/pangolin/gl/compat/gl2engine.h
+@@ -29,8 +29,8 @@
+ 
+ #include <stack>
+ 
+-#include <pangolin/opengl_render_state.h>
+-#include <pangolin/glsl.h>
++#include <pangolin/display/opengl_render_state.h>
++#include <pangolin/gl/glsl.h>
+ 
+ namespace pangolin {
+ 
+@@ -49,6 +49,7 @@ public:
+             "varying vec2 v_texcoord;\n"
+             "void main() {\n"
+             "    gl_Position = u_modelViewProjectionMatrix * a_position;\n"
++            "    gl_PointSize = 2.0;    \n"
+             "    v_frontColor = u_color;\n"
+             "    v_texcoord = a_texcoord;\n"
+             "}\n";
+@@ -108,7 +109,7 @@ public:
+     {
+         prog_fixed.SaveBind();
+         glUniform4f( u_color, r, g, b, a);
+-        prog_fixed.Unbind();
++        //prog_fixed.Unbind();    not sure this can cause bug !!!
+     }
+ 
+     void EnableTexturing(GLboolean v)
+@@ -118,6 +119,12 @@ public:
+         prog_fixed.Unbind();
+     }
+ 
++    GLenum getglprogram()
++    {
++        GLenum programid = prog_fixed.ProgramId();
++        return programid;
++    }
++
+ //protected:
+     std::stack<OpenGlMatrix> projection;
+     std::stack<OpenGlMatrix> modelview;
+@@ -216,6 +223,11 @@ inline void glVertexPointer( GLint size, GLenum type, GLsizei stride, const GLvo
+     glVertexAttribPointer(pangolin::DEFAULT_LOCATION_POSITION, size, type, GL_FALSE, stride, pointer);
+ }
+ 
++inline void glColorPointer( GLint size, GLenum type, GLsizei stride, const GLvoid * pointer)
++{
++    glVertexAttribPointer(pangolin::DEFAULT_LOCATION_COLOUR, size, type, GL_FALSE, stride, pointer);
++}
++
+ inline void glTexCoordPointer( GLint size, GLenum type, GLsizei stride, const GLvoid * pointer)
+ {
+     glVertexAttribPointer(pangolin::DEFAULT_LOCATION_TEXCOORD, size, type, GL_FALSE, stride, pointer);
+diff --git a/include/pangolin/gl/compat/gl_es_compat.h b/include/pangolin/gl/compat/gl_es_compat.h
+index 1c1fdb3b..0bece672 100644
+--- a/include/pangolin/gl/compat/gl_es_compat.h
++++ b/include/pangolin/gl/compat/gl_es_compat.h
+@@ -2,6 +2,7 @@
+ 
+ #include <pangolin/platform.h>
+ 
++
+ #define GLdouble     GLfloat
+ #define glClearDepth glClearDepthf
+ #define glFrustum    glFrustumf
+@@ -22,6 +23,24 @@
+     #define GL_DEPTH_COMPONENT24        GL_DEPTH_COMPONENT16 // <----
+     #define GL_COLOR_ATTACHMENT0_EXT    GL_COLOR_ATTACHMENT0
+     #define GL_DEPTH_ATTACHMENT_EXT     GL_DEPTH_ATTACHMENT
++    // IMX8  GLES2         
++    #define GL_LUMINANCE8               GL_LUMINANCE8_EXT
++    #define GL_RGBA8                    GL_RGBA8_OES
++    #define GL_LUMINANCE16              GL_LUMINANCE16F_EXT
++    #define GL_LUMINANCE32I_EXT         GL_LUMINANCE32F_EXT     // error , gles is not support 32I
++    #define GL_LUMINANCE32F_ARB         GL_LUMINANCE32F_EXT
++    #define GL_DOUBLE                   GL_FLOAT                //GLES not support double
++    #define GL_BGR                      GL_RGB                  // error  GLES not support BGR
++    #define GL_BGRA                     GL_BGRA_EXT
++    #define GL_RGBA16                   GL_RGBA16_EXT
++    #define GL_RGBA32F                  GL_RGBA32F_EXT
++    #define GL_RED                      GL_RED_EXT
++    #define GL_UNPACK_ROW_LENGTH        GL_UNPACK_ROW_LENGTH_EXT
++    // gles2.h
++    #define glGetBufferSubData          glBufferSubData
++    // IMX8 gl2ext.h
++    //#define glCopyImageSubData          glCopyImageSubDataOES
++    
+ #else
+     #define glOrtho                     glOrthof
+     #define glGenFramebuffersEXT        glGenFramebuffersOES
+@@ -37,7 +56,7 @@
+ #define glGetDoublev                glGetFloatv
+ 
+ #ifdef HAVE_GLES_2
+-#include <pangolin/gl2engine.h>
++#include <pangolin/gl/compat/gl2engine.h>
+ #endif
+ 
+ inline void glRectf(GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2)
+diff --git a/include/pangolin/gl/gl.hpp b/include/pangolin/gl/gl.hpp
+index 59571c79..23b5a7e0 100644
+--- a/include/pangolin/gl/gl.hpp
++++ b/include/pangolin/gl/gl.hpp
+@@ -211,7 +211,7 @@ inline void GlTexture::Upload(
+ ) {
+     Bind();
+     glTexSubImage2D(GL_TEXTURE_2D,0,0,0,width,height,data_format,data_type,data);
+-    CheckGlDieOnError();
++    //CheckGlDieOnError();
+ }
+ 
+ inline void GlTexture::Upload(
+@@ -222,7 +222,7 @@ inline void GlTexture::Upload(
+ {
+     Bind();
+     glTexSubImage2D(GL_TEXTURE_2D,0,tex_x_offset,tex_y_offset,data_w,data_h,data_format,data_type,data);
+-    CheckGlDieOnError();
++    //CheckGlDieOnError();
+ }
+ 
+ inline void GlTexture::Load(const TypedImage& image, bool sampling_linear)
+diff --git a/include/pangolin/gl/glchar.h b/include/pangolin/gl/glchar.h
+index 000d0da2..8872e918 100644
+--- a/include/pangolin/gl/glchar.h
++++ b/include/pangolin/gl/glchar.h
+@@ -28,6 +28,7 @@
+ #pragma once
+ 
+ #include <pangolin/gl/glplatform.h>
++#include <pangolin/gl/glinclude.h>
+ #include <map>
+ 
+ namespace pangolin {
+diff --git a/include/pangolin/gl/gldraw.h b/include/pangolin/gl/gldraw.h
+index 2ac0be71..92499edf 100644
+--- a/include/pangolin/gl/gldraw.h
++++ b/include/pangolin/gl/gldraw.h
+@@ -141,9 +141,11 @@ inline void glDrawCross( GLfloat x, GLfloat y, GLfloat z, GLfloat rad )
+ 
+ inline void glDrawAxis(float s)
+ {
++#if 0
+     const GLfloat cols[]  = { 1,0,0, 1,0,0, 0,1,0, 0,1,0, 0,0,1, 0,0,1 };
+     const GLfloat verts[] = { 0,0,0, s,0,0, 0,0,0, 0,s,0, 0,0,0, 0,0,s };
+     glDrawColoredVertices<float,float>(6, verts, cols, GL_LINES, 3, 3);
++#endif
+ }
+ 
+ inline void glDrawRect( GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2, GLenum mode = GL_TRIANGLE_FAN )
+@@ -191,6 +193,22 @@ inline void glDrawCircle( GLfloat x, GLfloat y, GLfloat rad )
+     glDisableClientState(GL_VERTEX_ARRAY);
+ }
+ 
++inline void glDrawTriangle(GLfloat axis_min=-0.5f, GLfloat axis_max = +0.5f){
++
++    const GLfloat l = axis_min;
++    const GLfloat h = axis_max;
++
++    GLfloat verts[] ={
++        0,h,0,
++        l,l,0,
++        h,l,0
++    };
++
++    glVertexAttribPointer ( 0, 3, GL_FLOAT, GL_FALSE, 0, verts );
++    glEnableVertexAttribArray ( 0 );
++    glDrawArrays ( GL_TRIANGLES, 0, 3 );
++}
++
+ inline void glDrawColouredCube(GLfloat axis_min=-0.5f, GLfloat axis_max = +0.5f)
+ {
+     const GLfloat l = axis_min;
+diff --git a/include/pangolin/gl/glplatform.h b/include/pangolin/gl/glplatform.h
+index caa0ad30..434acaa3 100644
+--- a/include/pangolin/gl/glplatform.h
++++ b/include/pangolin/gl/glplatform.h
+@@ -55,13 +55,17 @@
+     #undef ERROR
+ #endif
+ 
+-#include <GL/glew.h>
++#ifndef _IMX_LINUX_
++    #include <GL/glew.h>
++#endif
+ 
+ #ifdef HAVE_GLES
+-    #if defined(_ANDROID_)
++    #if defined(_ANDROID_) ||  defined(_IMX_LINUX_)
+         #include <EGL/egl.h>
+         #ifdef HAVE_GLES_2
++            #define GLFW_INCLUDE_ES2
+             #include <GLES2/gl2.h>
++            #define GL_GLEXT_PROTOTYPES
+             #include <GLES2/gl2ext.h>
+         #else
+             #include <GLES/gl.h>
+@@ -74,9 +78,9 @@
+     #endif
+ #else
+     #ifdef _OSX_
+-        #include <OpenGL/gl.h>
++        #include <OpenGL/xxgl.h>
+     #else
+-        #include <GL/gl.h>
++        #include <GL/xxgl.h>
+     #endif
+ #endif // HAVE_GLES
+ 
+diff --git a/include/pangolin/gl/glvbo.h b/include/pangolin/gl/glvbo.h
+index 546f6d59..4f1cc44c 100644
+--- a/include/pangolin/gl/glvbo.h
++++ b/include/pangolin/gl/glvbo.h
+@@ -107,7 +107,9 @@ inline void RenderVboCbo(GlBuffer& vbo, GlBuffer& cbo, bool draw_color, GLenum m
+ {
+     if(draw_color) {
+         cbo.Bind();
++#ifndef HAVE_GLES_2
+         glColorPointer(cbo.count_per_element, cbo.datatype, 0, 0);
++#endif
+         glEnableClientState(GL_COLOR_ARRAY);
+     }
+     
+@@ -141,7 +143,9 @@ inline void RenderVboIboCbo(GlBuffer& vbo, GlBuffer& ibo, GlBuffer& cbo, bool dr
+ {
+     if(draw_color) {
+         cbo.Bind();
++#ifndef HAVE_GLES_2
+         glColorPointer(cbo.count_per_element, cbo.datatype, 0, 0);
++#endif
+         glEnableClientState(GL_COLOR_ARRAY);
+     }
+     
+@@ -155,6 +159,7 @@ inline void RenderVboIboCbo(GlBuffer& vbo, GlBuffer& ibo, GlBuffer& cbo, bool dr
+ 
+ inline void RenderVboIboCboNbo(GlBuffer& vbo, GlBuffer& ibo, GlBuffer& cbo, GlBuffer& nbo, bool draw_mesh, bool draw_color, bool draw_normals)
+ {
++#if 0
+     if(draw_color) {
+         cbo.Bind();
+         glColorPointer(cbo.count_per_element, cbo.datatype, 0, 0);
+@@ -191,10 +196,12 @@ inline void RenderVboIboCboNbo(GlBuffer& vbo, GlBuffer& ibo, GlBuffer& cbo, GlBu
+ 
+     glDisableClientState(GL_VERTEX_ARRAY);
+     vbo.Unbind();
++#endif
+ }
+ 
+ inline void RenderVboIboNbo(GlBuffer& vbo, GlBuffer& ibo, GlBuffer& nbo, bool draw_mesh, bool draw_normals)
+ {
++#if 0
+     vbo.Bind();
+     glVertexPointer(vbo.count_per_element, vbo.datatype, 0, 0);
+     glEnableClientState(GL_VERTEX_ARRAY);
+@@ -220,6 +227,7 @@ inline void RenderVboIboNbo(GlBuffer& vbo, GlBuffer& ibo, GlBuffer& nbo, bool dr
+ 
+     glDisableClientState(GL_VERTEX_ARRAY);
+     vbo.Unbind();
++#endif
+ }
+ 
+ }
+diff --git a/include/pangolin/scene/axis.h b/include/pangolin/scene/axis.h
+index a0a33883..d8d5062f 100644
+--- a/include/pangolin/scene/axis.h
++++ b/include/pangolin/scene/axis.h
+@@ -25,19 +25,19 @@ struct Axis : public Renderable, public Interactive
+ 
+     void Render(const RenderParams&) override {
+         glColor4f(1,0,0,1);
+-        glPushName(label_x.Id());
++        //glPushName(label_x.Id());
+         glDrawLine(0,0,0, axis_length,0,0);
+-        glPopName();
++        //glPopName();
+ 
+         glColor4f(0,1,0,1);
+-        glPushName(label_y.Id());
++        //glPushName(label_y.Id());
+         glDrawLine(0,0,0, 0,axis_length,0);
+-        glPopName();
++        //glPopName();
+ 
+         glColor4f(0,0,1,1);
+-        glPushName(label_z.Id());
++        //glPushName(label_z.Id());
+         glDrawLine(0,0,0, 0,0,axis_length);
+-        glPopName();
++        //glPopName();
+     }
+ 
+     bool Mouse(
+diff --git a/include/pangolin/scene/scenehandler.h b/include/pangolin/scene/scenehandler.h
+index c23f1309..7069d9d8 100644
+--- a/include/pangolin/scene/scenehandler.h
++++ b/include/pangolin/scene/scenehandler.h
+@@ -75,6 +75,7 @@ struct SceneHandler : public Handler3D
+                      int x, int y, int grab_width,
+                      std::map<GLuint, Interactive*>& hit_objects )
+     {
++#if 0    
+         // Get views viewport / modelview /projection
+         GLint viewport[4] = {view.v.l, view.v.b, view.v.w, view.v.h};
+         pangolin::OpenGlMatrix mv = cam_state.GetModelViewMatrix();
+@@ -107,6 +108,7 @@ struct SceneHandler : public Handler3D
+         if (nHits > 0) {
+             ProcessHitBuffer(nHits, vSelectBuf, hit_objects);
+         }
++#endif
+     }
+ 
+     void Mouse(pangolin::View& view, pangolin::MouseButton button,
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 652f3f40..cd8e62e2 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -48,7 +48,7 @@ if(BUILD_PANGOLIN_GUI)
+ 
+ endif()
+ 
+-option(BUILD_PANGOLIN_VARS "Build support for Pangolin Vars" ON)
++option(BUILD_PANGOLIN_VARS "Build support for Pangolin Vars" OFF)
+ if(BUILD_PANGOLIN_VARS)
+   append_glob(HEADERS ${INCDIR}/var/*.h*)
+   append_glob(SOURCES var/*.cpp)
+@@ -124,7 +124,7 @@ if(BUILD_PANGOLIN_VIDEO)
+     RegisterThreadVideoFactory
+   )
+ 
+-  if(LINUX)
++  if(LINUX OR _IMX_LINUX_)
+     list(APPEND HEADERS ${INCDIR}/video/drivers/shared_memory.h)
+     list(APPEND SOURCES video/drivers/shared_memory.cpp)
+     # Required for shared memory API using some versions of glibc
+@@ -145,7 +145,7 @@ endif()
+ #######################################################
+ ## Setup required includes / link info
+ 
+-option(DISPLAY_X11 "X11 Window Interface" ON)
++option(DISPLAY_X11 "X11 Window Interface" OFF)
+ option(DISPLAY_WAYLAND "Wayland Window Interface" OFF)
+ 
+ if(BUILD_PANGOLIN_GUI)
+@@ -165,7 +165,32 @@ if(BUILD_PANGOLIN_GUI)
+         list(APPEND HEADERS "${INCDIR}/ios/PangolinAppDelegate.h" "${INCDIR}/ios/PangolinViewController.h" )
+         list(APPEND SOURCES "ios/PangolinAppDelegate.mm" "ios/PangolinViewController.mm" )
+         list(APPEND WINDOW_FACTORY_REG RegisterIosWindowFactory)
+-    else()
++    elseif(_IMX_LINUX_)
++        message("++++  For imx yocto platform, should use specific code for GLFW !                     gpu is support glesv2!")
++        ##  create  GLFW_wayland display!!!
++        ##  choose inherit display.cpp  
++        list(APPEND SOURCES display/device/display_glfw_wayland.cpp )
++        list(APPEND WINDOW_FACTORY_REG RegisterGLFWWindowFactory)
++
++
++        find_package(PkgConfig)
++        pkg_search_module(GLFW REQUIRED glfw3)
++
++        if(HAVE_GLES_2)
++            list(APPEND LINK_LIBS "-lEGL;-lGLESv2" )
++        else()
++            list(APPEND LINK_LIBS "-lEGL;-lGLESv1_CM" )
++        endif()
++
++        list(APPEND LINK_LIBS
++            ${GLFW_LIBRARIES}
++        )
++        list(APPEND INTERNAL_INC
++            ${GLFW_INCLUDE_DIR}
++        )
++
++
++    else() 
+         find_package(OpenGL REQUIRED)
+         list(APPEND USER_INC  ${OPENGL_INCLUDE_DIR})
+         list(APPEND LINK_LIBS ${OPENGL_LIBRARIES})
+@@ -175,21 +200,22 @@ if(BUILD_PANGOLIN_GUI)
+         endif()
+         list(APPEND USER_INC  ${GLEW_INCLUDE_DIR})
+         list(APPEND LINK_LIBS ${GLEW_LIBRARY})
++        
+     endif()
+ 
+     if( HAVE_GLES_2 )
+         # Add Pangolins backwards compat layer.
+-        list(APPEND HEADERS ${INCDIR}/gl2engine.h )
+-        list(APPEND SOURCES gl2engine.cpp)
++        list(APPEND HEADERS ${INCDIR}/gl/compat/gl2engine.h )
++        list(APPEND SOURCES gl/compat/gl2engine.cpp)
+     endif()
+ 
+-    # headless offscreen rendering via EGL
+-    find_package(OpenGL QUIET COMPONENTS EGL)
+-    if(OpenGL_EGL_FOUND)
+-        list(APPEND WINDOW_FACTORY_REG RegisterNoneWindowFactory)
+-        list(APPEND SOURCES display/device/display_headless.cpp)
+-        list(APPEND LINK_LIBS ${OPENGL_egl_LIBRARY} )
+-    endif()
++    # # headless offscreen rendering via EGL
++    # find_package(OpenGL QUIET COMPONENTS EGL)
++    # if(OpenGL_EGL_FOUND)
++    #     list(APPEND WINDOW_FACTORY_REG Register)
++    #     list(APPEND SOURCES display/device/display_headless.cpp)
++    #     list(APPEND LINK_LIBS ${OPENGL_egl_LIBRARY} )
++    # endif()
+ endif()
+ 
+ #######################################################
+@@ -201,6 +227,8 @@ if(ANDROID)
+     list(APPEND LINK_LIBS android log)
+ elseif(IOS)
+     # Nothing specific in here yet.
++elseif(_IMX_LINUX_)
++    # Nothing specific in here yet.
+ else()
+     if(BUILD_PANGOLIN_GUI)
+         if(_WIN_)
+@@ -331,7 +359,7 @@ if(BUILD_PANGOLIN_PYTHON AND BUILD_PANGOLIN_GUI AND BUILD_PANGOLIN_VARS AND NOT
+   endif()
+ endif()
+ 
+-option(BUILD_PANGOLIN_EIGEN "Build support for Eigen matrix types" ON)
++option(BUILD_PANGOLIN_EIGEN "Build support for Eigen matrix types" OFF)
+ if(BUILD_PANGOLIN_EIGEN)
+   find_package(Eigen QUIET)
+   if(EIGEN_FOUND)
+@@ -629,11 +657,13 @@ endif()
+ set(INSTALL_INCLUDE_DIR "include")
+ 
+ add_library(${LIBRARY_NAME} ${SOURCES} ${HEADERS})
+-# 'System' includes shield us from warnings in those includes.
+-target_include_directories(${LIBRARY_NAME} SYSTEM PUBLIC ${USER_INC} PRIVATE ${INTERNAL_INC})
++## 'System' includes shield us from warnings in those includes.
++#target_include_directories(${LIBRARY_NAME} SYSTEM PUBLIC ${USER_INC} PRIVATE ${INTERNAL_INC})
+ target_include_directories(${LIBRARY_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+                                                   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
+-                                                  $<INSTALL_INTERFACE:${INSTALL_INCLUDE_DIR}>)
++                                                  $<INSTALL_INTERFACE:${INSTALL_INCLUDE_DIR}>
++                                                  PUBLIC ${USER_INC}
++                                                  PRIVATE ${INTERNAL_INC})
+ target_link_libraries(${LIBRARY_NAME} PUBLIC ${LINK_LIBS})
+ 
+ ## Generate symbol export helper header on MSVC
+diff --git a/src/PangolinConfig.cmake.in b/src/PangolinConfig.cmake.in
+index c81cfd9b..165a0a16 100644
+--- a/src/PangolinConfig.cmake.in
++++ b/src/PangolinConfig.cmake.in
+@@ -1,14 +1,20 @@
+ # Compute paths
+ get_filename_component( PROJECT_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH )
++get_filename_component(PACKAGE_PREFIX_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../" ABSOLUTE)
+ SET( Pangolin_INCLUDE_DIRS "@EXPORT_LIB_INC_DIR@;@USER_INC@" )
+-SET( Pangolin_INCLUDE_DIR  "@EXPORT_LIB_INC_DIR@;@USER_INC@" )
++#SET( Pangolin_INCLUDE_DIR  "@EXPORT_LIB_INC_DIR@;@USER_INC@" )
++SET( Pangolin_INCLUDE_DIR  "${PACKAGE_PREFIX_DIR}/include/pangolin" )
++
++## Library dependencies (contains definitions for IMPORTED targets)
++#if( NOT TARGET @LIBRARY_NAME@ AND NOT @PROJECT_NAME@_BINARY_DIR )
++#  include( "${PROJECT_CMAKE_DIR}/@PROJECT_NAME@Targets.cmake" )
++#  @ExternConfig@
++#endif()
++
++
+ 
+-# Library dependencies (contains definitions for IMPORTED targets)
+-if( NOT TARGET @LIBRARY_NAME@ AND NOT @PROJECT_NAME@_BINARY_DIR )
+-  include( "${PROJECT_CMAKE_DIR}/@PROJECT_NAME@Targets.cmake" )
+-  @ExternConfig@
+-endif()
+ 
+ SET( Pangolin_LIBRARIES    @LIBRARY_NAME@ )
+ SET( Pangolin_LIBRARY      @LIBRARY_NAME@ )
++SET( Pangolin_LIBRARY      "${PACKAGE_PREFIX_DIR}/lib/libpangolin.so" )
+ SET( Pangolin_CMAKEMODULES @CMAKE_CURRENT_SOURCE_DIR@/../CMakeModules )
+diff --git a/src/config.h.in b/src/config.h.in
+index 0c6937ba..28c6eef8 100644
+--- a/src/config.h.in
++++ b/src/config.h.in
+@@ -59,6 +59,7 @@
+ #cmakedefine _LINUX_
+ #cmakedefine _ANDROID_
+ #cmakedefine _IOS_
++#cmakedefine _IMX_LINUX_
+ 
+ /// Compiler
+ #cmakedefine _GCC_
+diff --git a/src/display/device/display_glfw_wayland.cpp b/src/display/device/display_glfw_wayland.cpp
+new file mode 100644
+index 00000000..450c3613
+--- /dev/null
++++ b/src/display/device/display_glfw_wayland.cpp
+@@ -0,0 +1,153 @@
++#include <pangolin/platform.h>
++#include <pangolin/display/display.h>
++#include <pangolin/display/display_internal.h>
++#include <pangolin/factory/factory_registry.h>
++
++
++#ifdef HAVE_PYTHON
++#include <pangolin/python/pyinterpreter.h>
++#include <pangolin/console/ConsoleView.h>
++#endif // HAVE_PYTHON
++
++#include <iostream>
++#include <sstream>
++#include <string>
++#include <map>
++#include <mutex>
++#include <cstdlib>
++
++#include <GLFW/glfw3.h>
++
++
++//#include <pangolin/window_frameworks.h>
++#define GLFW_VERSION_GE(MAJ, MIN) GLFW_VERSION_MAJOR >= MAJ && GLFW_VERSION_MINOR >= MIN
++
++namespace pangolin {
++    
++
++extern __thread PangolinGl* context;
++
++struct GLFWWaylandWindow : public PangolinGl {
++    GLFWWaylandWindow(const std::string& title, const int width, const int height, const bool offscreen = false);
++    ~GLFWWaylandWindow() override;
++    void ToggleFullscreen() override;
++    void Move(int x, int y) override;
++    void Resize(unsigned int w, unsigned int h) override;
++    void MakeCurrent() override;
++    void RemoveCurrent() override;
++    void SwapBuffers() override;
++    void ProcessEvents() override;
++
++    GLFWwindow* window;
++
++};
++
++
++
++static void error_callback(int error, const char* description)
++{
++    fprintf(stderr, "Error: %s\n", description);
++}
++
++
++GLFWWaylandWindow::GLFWWaylandWindow(const std::string& title, const int width, const int height, const bool offscreen){
++        //CreateGLFWWindow
++    windowed_size[0] = width;
++    windowed_size[1] = height;
++
++    glfwSetErrorCallback(error_callback);
++
++    if (!glfwInit())
++        exit(EXIT_FAILURE);
++
++#ifndef HAVE_GLES_2
++    printf("Error:   not found GLES v2    ! \n");
++#endif
++
++    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
++    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
++    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
++    // default offscreen is false,  if not full screen, should not set GLFW_VISIBLE as GLFW_FALSE
++    if(offscreen) {
++        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
++    }
++    //create glfw window
++    window = glfwCreateWindow(width, height, "Pangolin GLFW", NULL, NULL);
++    if (!window)
++    {
++        glfwTerminate();
++        exit(EXIT_FAILURE);
++        printf("Error:   can not create glfw window    ! \n");
++        return ;
++    }
++   
++
++}
++
++
++GLFWWaylandWindow::~GLFWWaylandWindow(){
++    glfwDestroyWindow(window);
++    glfwTerminate();
++}
++
++
++void GLFWWaylandWindow::ToggleFullscreen(){
++    std::cout << "GLFWWaylandWindow::ToggleFullscreen is not Implemented !" << std::endl;
++
++}
++
++void GLFWWaylandWindow::ProcessEvents(){
++    glfwPollEvents();
++}
++
++void GLFWWaylandWindow::SwapBuffers(){
++    glfwSwapBuffers(window);
++}
++
++
++void GLFWWaylandWindow::MakeCurrent() {
++    glfwMakeContextCurrent(window);
++    printf("GL_VERSION  : %s\n", glGetString(GL_VERSION));
++    printf("GL_RENDERER : %s\n", glGetString(GL_RENDERER));
++    context = this;
++}
++
++void GLFWWaylandWindow::RemoveCurrent() {
++    glfwMakeContextCurrent(nullptr);
++}
++
++void GLFWWaylandWindow::Move(int x, int y) {
++    glfwSetWindowPos(window, x, y);
++}
++
++void GLFWWaylandWindow::Resize(unsigned int w, unsigned int h) {
++     glfwSetWindowSize(window, w, h);
++}
++
++
++
++std::unique_ptr<WindowInterface> CreateGLFWWindowAndBind(const std::string& window_title, const int w, const int h, const bool offscreen = false) {
++    return std::unique_ptr<WindowInterface>(new GLFWWaylandWindow(window_title, w, h, offscreen));
++}
++
++
++PANGOLIN_REGISTER_FACTORY(GLFWWindow) {
++    struct GLFWWindowFactory : public FactoryInterface<WindowInterface> {
++        std::unique_ptr<WindowInterface> Open(const Uri& uri) override {
++
++            const std::string window_title = uri.Get<std::string>("window_title", "window");
++            const int w = uri.Get<int>("w", 640);
++            const int h = uri.Get<int>("h", 480);
++            const bool offscreen = uri.Get<int>("offscreen", false);
++            return std::unique_ptr<WindowInterface>(CreateGLFWWindowAndBind(window_title, w, h, offscreen));
++        }
++    
++};
++
++    auto factory = std::make_shared<GLFWWindowFactory>();
++    FactoryRegistry<WindowInterface>::I().RegisterFactory(factory, 10, "wayland");
++    FactoryRegistry<WindowInterface>::I().RegisterFactory(factory, 9,  "linux");
++    FactoryRegistry<WindowInterface>::I().RegisterFactory(factory, 20,  "default");
++}
++
++}
+diff --git a/src/display/display.cpp b/src/display/display.cpp
+index d08d208d..99d39fb8 100644
+--- a/src/display/display.cpp
++++ b/src/display/display.cpp
+@@ -155,7 +155,7 @@ WindowInterface& CreateWindowAndBind(std::string window_title, int w, int h, con
+     context->is_high_res = win_uri.Get(PARAM_HIGHRES,false);
+     context->MakeCurrent();
+     context->ProcessEvents();
+-    glewInit();
++    //glewInit();
+ 
+     return *context;
+ }
+diff --git a/src/display/image_view.cpp b/src/display/image_view.cpp
+index 5b56ca59..b780208c 100644
+--- a/src/display/image_view.cpp
++++ b/src/display/image_view.cpp
+@@ -18,8 +18,9 @@ ImageView::~ImageView()
+ void ImageView::Render()
+ {
+     LoadPending();
+-
++#ifndef HAVE_GLES
+     glPushAttrib(GL_DEPTH_BITS);
++#endif
+     glDisable(GL_DEPTH_TEST);
+ 
+     Activate();
+@@ -50,8 +51,9 @@ void ImageView::Render()
+     {
+         extern_draw_function(*this);
+     }
+-
++#ifndef HAVE_GLES
+     glPopAttrib();
++#endif
+ }
+ 
+ void ImageView::Mouse(View& view, pangolin::MouseButton button, int x, int y, bool pressed, int button_state)
+@@ -65,6 +67,7 @@ void ImageView::Mouse(View& view, pangolin::MouseButton button, int x, int y, bo
+ 
+ void ImageView::Keyboard(View& view, unsigned char key, int x, int y, bool pressed)
+ {
++#if 0
+     if(key == 'a')
+     {
+         if(!tex.IsValid())
+@@ -105,6 +108,7 @@ void ImageView::Keyboard(View& view, unsigned char key, int x, int y, bool press
+     {
+         pangolin::ImageViewHandler::Keyboard(view, key, x, y, pressed);
+     }
++#endif
+ }
+ 
+ pangolin::GlTexture& ImageView::Tex() {
+@@ -179,10 +183,15 @@ ImageView& ImageView::SetImage(const pangolin::GlTexture& texture)
+         SetAspect((float)texture.width / (float)texture.height);
+         tex.Reinitialise(texture.width, texture.height, texture.internal_format, true);
+     }
+-
++    
++#ifdef HAVE_GLES_2
++    PFNGLCOPYIMAGESUBDATAOESPROC glCopyImageSubDataOES;
++    glCopyImageSubDataOES(
++            texture.tid, GL_TEXTURE_2D, 0, 0, 0, 0, tex.tid, GL_TEXTURE_2D, 0, 0, 0, 0, tex.width, tex.height, 1);
++#else 
+     glCopyImageSubData(
+             texture.tid, GL_TEXTURE_2D, 0, 0, 0, 0, tex.tid, GL_TEXTURE_2D, 0, 0, 0, 0, tex.width, tex.height, 1);
+-
++#endif
+     return *this;
+ }
+ 
+diff --git a/src/display/opengl_render_state.cpp b/src/display/opengl_render_state.cpp
+index cdc8f911..6dfabc5c 100644
+--- a/src/display/opengl_render_state.cpp
++++ b/src/display/opengl_render_state.cpp
+@@ -36,7 +36,7 @@ namespace pangolin
+ inline void glLoadMatrix(const float* m) { glLoadMatrixf(m); }
+ inline void glMultMatrix(const float* m) { glMultMatrixf(m); }
+ 
+-#ifndef HAVE_GLES
++#if 0
+ inline void glLoadMatrix(const double* m) { glLoadMatrixd(m); }
+ inline void glMultMatrix(const double* m) { glMultMatrixd(m); }
+ #endif
+@@ -102,12 +102,27 @@ OpenGlMatrix OpenGlMatrix::RotateZ(GLprecision theta_rad)
+ 
+ void OpenGlMatrix::Load() const
+ {
++#ifdef HAVE_GLES 
++    // pangolin::GlEngine& gl = pangolin::glEngine();
++    pangolin::GLprecision* cm = pangolin::glEngine().currentmatrix->top().m;
++    for(int i=0; i<16; ++i) cm[i] = (pangolin::GLprecision)m[i];
++    pangolin::glEngine().UpdateMatrices();
++#else
+     glLoadMatrix(m);
++#endif
+ }
+ 
+ void OpenGlMatrix::Multiply() const
+ {
++    // pangolin::GlEngine& gl = pangolin::glEngine();
++#ifdef HAVE_GLES 
++    float res[16];
++    pangolin::MatMul<4,4,4,float>(res, pangolin::glEngine().currentmatrix->top().m, m);
++    memcpy(pangolin::glEngine().currentmatrix->top().m, res, sizeof(float) * 16 );
++    pangolin::glEngine().UpdateMatrices();
++#else
+     glMultMatrix(m);
++#endif
+ }
+ 
+ void OpenGlMatrix::SetIdentity()
+diff --git a/src/gl/gldraw.cpp b/src/gl/gldraw.cpp
+index 3a5b49ef..572fc0e7 100644
+--- a/src/gl/gldraw.cpp
++++ b/src/gl/gldraw.cpp
+@@ -38,12 +38,20 @@ void glRecordGraphic(float x, float y, float radius)
+     if( ticks % 2 )
+     {
+         // now, render a little red "recording" dot
++#ifndef HAVE_GLES
+         glPushAttrib(GL_ENABLE_BIT);
++#endif
+         glDisable(GL_LIGHTING);
+         glDisable(GL_DEPTH_TEST);
++#ifdef HAVE_GLES
++        glColor3f(1.0,0,0);
++#else
+         glColor3ub( 255, 0, 0 );
++#endif
+         glDrawCircle( x, y, radius );
++#ifndef HAVE_GLES
+         glPopAttrib();
++#endif
+     }
+ 
+ }
+diff --git a/src/gl/glpangoglu.cpp b/src/gl/glpangoglu.cpp
+index 5ab098f5..c8a62942 100644
+--- a/src/gl/glpangoglu.cpp
++++ b/src/gl/glpangoglu.cpp
+@@ -39,8 +39,13 @@ static const std::unordered_map<GLenum, std::string> gl_error_string = {
+     {GL_INVALID_OPERATION, "GL_INVALID_OPERATION: The specified operation is not allowed in the current state."},
+     {GL_INVALID_FRAMEBUFFER_OPERATION, "GL_INVALID_FRAMEBUFFER_OPERATION: The framebuffer object is not complete."},
+     {GL_OUT_OF_MEMORY, "GL_OUT_OF_MEMORY: There is not enough memory left to execute the command."},
++#ifdef HAVE_GLES_2
++    {GL_STACK_UNDERFLOW_KHR, "GL_STACK_UNDERFLOW: An attempt has been made to perform an operation that would cause an internal stack to underflow."},
++    {GL_STACK_OVERFLOW_KHR, "GL_STACK_OVERFLOW: An attempt has been made to perform an operation that would cause an internal stack to overflow."},
++#else
+     {GL_STACK_UNDERFLOW, "GL_STACK_UNDERFLOW: An attempt has been made to perform an operation that would cause an internal stack to underflow."},
+     {GL_STACK_OVERFLOW, "GL_STACK_OVERFLOW: An attempt has been made to perform an operation that would cause an internal stack to overflow."},
++#endif
+ };
+ 
+ const char* glErrorString(GLenum error)
+diff --git a/src/handler/handler.cpp b/src/handler/handler.cpp
+index 30705b67..3387d358 100644
+--- a/src/handler/handler.cpp
++++ b/src/handler/handler.cpp
+@@ -134,7 +134,11 @@ void Handler3D::PixelUnproject( View& view, GLprecision winx, GLprecision winy,
+ {
+     const GLint viewport[4] = {view.v.l,view.v.b,view.v.w,view.v.h};
+     const pangolin::OpenGlMatrix proj = cam_state->GetProjectionMatrix();
+-    glUnProject(winx, winy, winz, Identity4d, proj.m, viewport, &Pc[0], &Pc[1], &Pc[2]);
++    #ifdef HAVE_GLES    
++        glUnProject(winx, winy, winz, Identity4f, proj.m, viewport, &Pc[0], &Pc[1], &Pc[2]);
++    #else
++        glUnProject(winx, winy, winz, Identity4d, proj.m, viewport, &Pc[0], &Pc[1], &Pc[2]);
++   #endif
+ }
+ 
+ void Handler3D::GetPosNormal(pangolin::View& view, int winx, int winy, GLprecision p[3], GLprecision Pw[3], GLprecision Pc[3], GLprecision nw[3], GLprecision default_z)
+diff --git a/src/handler/handler_image.cpp b/src/handler/handler_image.cpp
+index 8ca18fd5..cc89b0c0 100644
+--- a/src/handler/handler_image.cpp
++++ b/src/handler/handler_image.cpp
+@@ -3,6 +3,15 @@
+ 
+ namespace pangolin
+ {
++inline void glOrtho(
++    GLdouble l, GLdouble r,
++    GLdouble b, GLdouble t,
++    GLdouble n, GLdouble f)
++{
++    pangolin::GlEngine& gl = pangolin::glEngine();
++    gl.currentmatrix->top() = pangolin::ProjectionMatrixOrthographic(l,r,b,t,n,f);
++    gl.UpdateMatrices();
++}
+ 
+ ImageViewHandler::ImageViewHandler()
+     : linked_view_handler(0),
+-- 
+2.35.1
+

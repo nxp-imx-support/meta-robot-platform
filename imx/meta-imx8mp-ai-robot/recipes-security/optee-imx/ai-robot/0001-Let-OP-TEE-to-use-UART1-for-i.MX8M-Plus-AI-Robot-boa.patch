@@ -1,0 +1,26 @@
+From be9f2b0d0b61949ebb81afef23cd522a37e67a56 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 28 Mar 2023 17:22:57 +0800
+Subject: [PATCH] Let OP-TEE to use UART1 for i.MX8M Plus AI Robot board
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ core/arch/arm/plat-imx/conf.mk | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-imx/conf.mk b/core/arch/arm/plat-imx/conf.mk
+index 433313a92..ce997ff3c 100644
+--- a/core/arch/arm/plat-imx/conf.mk
++++ b/core/arch/arm/plat-imx/conf.mk
+@@ -397,7 +397,7 @@ endif
+ 
+ ifneq (,$(filter $(PLATFORM_FLAVOR),mx8mpevk))
+ CFG_DDR_SIZE ?= UL(0x180000000)
+-CFG_UART_BASE ?= UART2_BASE
++CFG_UART_BASE ?= UART1_BASE
+ $(call force,CFG_CORE_LARGE_PHYS_ADDR,y)
+ $(call force,CFG_CORE_ARM64_PA_BITS,36)
+ endif
+-- 
+2.35.1
+

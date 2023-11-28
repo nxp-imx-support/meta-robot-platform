@@ -1,0 +1,71 @@
+From 3a60cadb872d1e084ca69406805071c0a460143d Mon Sep 17 00:00:00 2001
+From: zxd2021-iMX <xiaodong.zhang@nxp.com>
+Date: Thu, 24 Aug 2023 14:26:34 +0800
+Subject: [PATCH] fix linking by adding the missing -lbluetooth to LDLIBS
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ Makefile.in               | 4 ++--
+ common/include/lib.mak.in | 1 -
+ defs.mak.in               | 2 +-
+ lswm/Makefile.in          | 2 +-
+ 4 files changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index 6d3ac98..cca5e47 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -3,10 +3,10 @@
+ include @top_builddir@/defs.mak
+ 
+ LIB_DIRS = libcwiid
+-BIN_DIRS = @WMGUI@ wminput lswm
++BIN_DIRS = @WMGUI@ lswm
+ DOC_DIRS = man doc
+ ifdef PYTHON
+-BIND_DIRS = python
++BIND_DIRS =
+ endif
+ 
+ SUB_DIRS = $(LIB_DIRS) $(BIN_DIRS) $(DOC_DIRS) $(BIND_DIRS) wmdemo
+diff --git a/common/include/lib.mak.in b/common/include/lib.mak.in
+index 5e81ff3..8ebde6b 100644
+--- a/common/include/lib.mak.in
++++ b/common/include/lib.mak.in
+@@ -40,7 +40,6 @@ install_shared: shared
+ 	install -D $(SHARED_LIB) $(DEST_LIB_INST_DIR)/$(SHARED_LIB)
+ 	ln -sf $(SHARED_LIB) $(DEST_LIB_INST_DIR)/$(SO_NAME)
+ 	ln -sf $(SO_NAME) $(DEST_LIB_INST_DIR)/$(LINK_NAME)
+-	$(LDCONFIG)
+ 
+ clean:
+ 	rm -f $(STATIC_LIB) $(SHARED_LIB) $(OBJECTS) $(DEPS)
+diff --git a/defs.mak.in b/defs.mak.in
+index fb2ff7c..a6a7ddb 100644
+--- a/defs.mak.in
++++ b/defs.mak.in
+@@ -22,7 +22,7 @@ LEX = @LEX@
+ YACC = @YACC@
+ PYTHON = @PYTHON@
+ 
+-COMMON = @abs_top_builddir@/common
++COMMON = @abs_top_srcdir@/common
+ 
+ ifdef DESTDIR
+ 	ROOTDIR = $(DESTDIR:%/=%)
+diff --git a/lswm/Makefile.in b/lswm/Makefile.in
+index 79e8b5b..017104f 100644
+--- a/lswm/Makefile.in
++++ b/lswm/Makefile.in
+@@ -8,7 +8,7 @@ SOURCES = lswm.c
+ 
+ CFLAGS += -I@top_builddir@/libcwiid
+ LDFLAGS += -L@top_builddir@/libcwiid
+-LDLIBS += -lcwiid
++LDLIBS += -lcwiid -lbluetooth
+ INST_DIR = @bindir@
+ 
+ include $(COMMON)/include/app.mak
+-- 
+2.25.1
+

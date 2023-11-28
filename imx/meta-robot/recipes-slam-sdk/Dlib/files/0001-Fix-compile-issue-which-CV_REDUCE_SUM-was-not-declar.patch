@@ -1,0 +1,41 @@
+From edd246d9e640997c2cb4566e8b36193969fc2746 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Sat, 7 May 2022 16:48:15 +0800
+Subject: [PATCH] Fix compile issue which CV_REDUCE_SUM was not declared in
+ this scope
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ src/DVision/FSolver.cpp | 2 +-
+ src/DVision/HSolver.cpp | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/DVision/FSolver.cpp b/src/DVision/FSolver.cpp
+index 3b62555..74f3c79 100644
+--- a/src/DVision/FSolver.cpp
++++ b/src/DVision/FSolver.cpp
+@@ -10,7 +10,7 @@
+  
+ #include <vector>
+ #include <cmath>
+-#include <opencv2/core.hpp>
++#include <opencv2/core/core_c.h>
+ #include "FSolver.h"
+ 
+ #include "DUtils.h"
+diff --git a/src/DVision/HSolver.cpp b/src/DVision/HSolver.cpp
+index 1d61772..f719f57 100644
+--- a/src/DVision/HSolver.cpp
++++ b/src/DVision/HSolver.cpp
+@@ -10,7 +10,7 @@
+  
+ #include <vector>
+ #include <cmath>
+-#include <opencv2/core.hpp>
++#include <opencv2/core/core_c.h>
+ #include "HSolver.h"
+ 
+ #include "DUtils.h"
+-- 
+2.35.1
+

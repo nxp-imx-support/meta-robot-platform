@@ -1,0 +1,1262 @@
+From bcf5e3a64bcf9db8ed7ee64a5975174986753d80 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Wed, 8 Sep 2021 15:36:13 +0800
+Subject: [PATCH] Add the testing of asymmetric cryptography
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ tests/Makefile            |   8 +-
+ tests/asymmetric_cipher.c | 624 ++++++++++++++++++++++++++++++++++++++
+ tests/cv2x-verify.c       | 581 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 1211 insertions(+), 2 deletions(-)
+ create mode 100644 tests/asymmetric_cipher.c
+ create mode 100644 tests/cv2x-verify.c
+
+diff --git a/tests/Makefile b/tests/Makefile
+index 2502f32..6e7928c 100644
+--- a/tests/Makefile
++++ b/tests/Makefile
+@@ -2,10 +2,12 @@ CFLAGS += -I.. $(CRYPTODEV_CFLAGS) -Wall -Werror
+ 
+ comp_progs := cipher_comp hash_comp hmac_comp
+ 
+-hostprogs := cipher cipher-aead hmac speed async_cipher async_hmac \
++hostprogs :=cv2x-verify asymmetric_cipher cipher cipher-aead hmac speed async_cipher async_hmac \
+ 	async_speed sha_speed hashcrypt_speed fullspeed cipher-gcm \
+ 	cipher-aead-srtp $(comp_progs)
+-
++	
++example-asymmetric_cipher-objs := asymmetric_cipher.o
++example-cv2x-verify-objs := cv2x-verify.o
+ example-cipher-objs := cipher.o
+ example-cipher-aead-objs := cipher-aead.o
+ example-hmac-objs := hmac.o
+@@ -25,6 +27,8 @@ all: $(hostprogs)
+ 
+ check: $(hostprogs)
+ 	./cipher
++	./asymmetric_cipher
++	./cv2x-verify
+ 	./hmac
+ 	./async_cipher
+ 	./async_hmac
+diff --git a/tests/asymmetric_cipher.c b/tests/asymmetric_cipher.c
+new file mode 100644
+index 0000000..ec41322
+--- /dev/null
++++ b/tests/asymmetric_cipher.c
+@@ -0,0 +1,624 @@
++/*
++ * Demo on how to use /dev/crypto device for ciphering.
++ *
++ * Placed under public domain.
++ *
++ */
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>
++
++#include <sys/ioctl.h>
++#include <sys/time.h>
++#include <crypto/cryptodev.h>
++
++static unsigned int cryptodev_asymfeat = 0;
++
++#define TEST_DEBUG
++
++/* RSA key 2048-bits */
++#define KEY_LEN 256
++#define EXP_LEN 3
++#define RSA_N "8E70DB3A90EB6036AECCBB7BA2AABA4C9ACEBD45C98F3B39836CB60625AC621EA8C355567F5AED4FF6DC1470D6407CEF38A9C68190B4BB280B50B305E6352BA934B20B2E3FEBFF6F5642609134EF23CFA8F1F327FC343000C60BAAB867B4286B91C6D97D38455C29A0D029AB26E455A226B41D492D7FB7DE171B9A193308BBAB9DB4FB9BB5A4EA0D900E2B9114B015953DB6E538593D1050BE56552379272BAA298B58FF243FAB63ACC42C01F0242D58B522D72AC1EE9A2D2F297E49F9977F9BE8D0B2D5584D25D6B9321E60441DD16E4EFF1D6A4A05A19985D81BF266DA0704BF3151F857F96075BE62D552B253861ED23C9A2401BE289DEB0842D40F5F54D3"
++#define RSA_E "010001"
++#define RSA_D "7D804438AADD282DA5FFEF2474E37637EEA23F33D0EEA920F881FD331758762F4B44A7D9096704F6D2AB803B171B44B8C5B51898A9F6037CB9D38598AA07A90B71C9797E6B85B4CED532B0C0DFE1E02CA44F618D967228E555998BF6E43060F8BE3D74FD166A4E54C34305A3AE25BAA99EEE4D6B5F724B7F9BDE8EFCAAF183DFD53C979FBA727392853D87DD3851D6AC4660BDFC048E077965A38D0F36D322EAE7978D3956C7DD33B9526B8B4A43C2FB112F634D89E3C6F17D4FF826877BE889366E405DCB66537CE99A98BC42F12CC823579A82AAC19C7A7A5C4E48BE894E8575174176C63A4ABC32A0017DBE38C5EBC4C4CC5717306D326931D699EA1D33D1"
++#define RSA_P "CD1D918D0C0AE3788AF6D2F6C37ECE5DC5CDBECC51DD0B110DF45EBE5A394993ECBDDDC7A5AF4D9E3E5867C3DC46890687CDFCDA404E1DC0480947AB4F2378C99619E435CF4960EC07C2614038D9FD40E0F143FA260C62EF78F778C2FB2B92681D36470AE607B43C9F6682BA03CBCA44D5EEBF8D1E577AC6B320943E0F21616B"
++#define RSA_Q "B1C6F5870203321547B2EDA36B0E919F5FE99781BA64853349C55ECFF79941205487451014C372CD03BE319285AADF9D53DA0126D70DAC69687CB15C9AD3EE415F3B685FE6102CA99F85EC149138270188AC7165B9A650F833006793D3537E9205538DC69F72D3EC21FEBABF72F26B5E70B94324C7329C6E6A23A1BF6FE6EC39"
++#define RSA_DP "432C96D961834361DBE8DFC84ED7FD8FBA531A5461CF096BC96D29861F98395F879DDABF22A4D9BFA45D618644629947993C3DBDE06774D8DEFEA309187EDE74EE828639952C4BE0A0DDE8E99674D5BAE4B03EF9F2720608B54E1EAF84808D8F2959F8443A77757091278A528F21B3997D92960B0A4FCDF6BAFD456F59972E07"
++#define RSA_DQ "3E329EDA6250DDE7E612EAE37EE434FCAEA0DA5A0FED7550D161955F6B8019F206C0E0DFD473E1296B42D2B331C2EBC36E7FDA614D62424D0ABA7D8F29B8362676FC20F354599A56AA323FBB9E6727F6786BE4ACB37C45DDE07226CAE867D0E3A3AB6CF1EDFD4DB9D2D6FD5D58090A999B14A6322AE34129BC46C523663243B9"
++#define RSA_QP "7BE26A09339247E99817042C88A59B15B3A25211D69DC837BEA952914E37966CB98AA10BE7F702FE3CFD8CBBBC4F7B9046C271F7DD4C78BB69C648218E8CA0486C461AA9C0739AD53A970742D1B488701BB5A2908529FC13B860BD7112E993B8589C1ACF7649D915D04F1741ADE5ECD12C22E4FA05CCF90D94990161B1331D12"
++
++#define PT_LEN 24
++#define RSA_PT "\xAA\xBB\xCC\x03\x02\x01\x00\xFF\xFF\xFF\xFF\xFF\x11\x22\x33\x0A\x0B\x0C\xCC\xDD\xDD\xDD\xDD\xDD"
++
++/* SECP256R1 256-bits NIST curve */
++#define L_LEN 32
++#define N_LEN 32
++#define ECC_Q "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF"
++#define ECC_R "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"
++#define ECC_AB "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B"
++#define ECC_G "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C2964FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5"
++#define ECC_S "0010511AB40A746D0F4AFF9C9FCB3710588466DAE44C267C040832C690AB57E1"
++#define ECC_W "21ADB5A56A9AE28A5B34B5191A2CE77BAB6B595F41FC899E479EB2EAC4A80BC98A35F9AA4615C0BDCE64209D157BD8D3D2196E2457CFE22DEF4ECE1EAAF8BE29"
++
++#define MSG_LEN 32
++#define ECDSA_MSG "\x01\x1E\x53\x5F\xCE\x04\xC5\x72\xA5\xA4\x47\xC4\xF2\x91\x73\xAF\x0D\xB5\xDC\xED\x1B\xE5\x33\xA6\xBE\xC9\x42\xFC\x4D\x35\x6E\x4A"
++
++static int int_from_hstring(unsigned char *A, const char *s)
++{
++	int i, j, slen;
++	unsigned int d;
++	char c;
++
++	slen = strlen(s);
++
++	for (i=0, j=0; i<slen; i++, j++) {
++		d = 255;
++		c = s[i];
++
++		if(c >= '0' && c <= '9') d = c - '0';
++		if(c >= 'A' && c <= 'F') d = c - '7';
++		if(c >= 'a' && c <= 'f') d = c - 'W';
++		A[j/2] |= d << (((j + 1) % 2) << 2);
++	}
++
++	return 0;
++}
++
++int rsa_test(int cfd)
++{
++	unsigned char rsa_plaintext[PT_LEN];
++	unsigned char rsa_ciphertext[KEY_LEN];
++	unsigned char rsa_decrypted[PT_LEN];
++#ifdef TEST_DEBUG
++	struct timeval starttime, endtime;
++	unsigned long timeuse;
++#endif
++	int i, ret = 1;
++
++	struct session_op sess;
++	struct crypt_kop kop;
++
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++	sess.pk_cipher = CRYPTO_ASYMMETRIC_RSA_PUBLIC;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_rsa;
++	}
++
++	memcpy(rsa_plaintext, RSA_PT, PT_LEN);
++#ifdef TEST_DEBUG
++	printf("\n plaintext: \n");
++	for (i=0; i<PT_LEN; i++)
++	{
++		printf("%02X", rsa_plaintext[i]);
++	}
++	printf("\n");
++
++	printf("\nRSA encryption: \n");
++#endif
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_RSA_PUBLIC;
++	kop.crk_param[0].crp_p = malloc(KEY_LEN);
++	memset(kop.crk_param[0].crp_p, 0, KEY_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, RSA_N);
++	kop.crk_param[0].crp_nbits = KEY_LEN * 8;
++	kop.crk_param[1].crp_p = malloc(EXP_LEN);
++	memset(kop.crk_param[1].crp_p, 0, EXP_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, RSA_E);
++	kop.crk_param[1].crp_nbits = EXP_LEN * 8;
++	kop.crk_param[2].crp_p = malloc(PT_LEN);
++	memset(kop.crk_param[2].crp_p, 0, PT_LEN);
++	memcpy(kop.crk_param[2].crp_p, rsa_plaintext, PT_LEN);
++	kop.crk_param[2].crp_nbits = PT_LEN * 8;
++	kop.crk_param[3].crp_p = malloc(KEY_LEN);
++	kop.crk_iparams = 3;
++	kop.crk_oparams = 1;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);	 
++#endif
++    if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nRSA encryption failed \n");
++		return 1;
++	}
++#ifdef TEST_DEBUG		
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;	
++
++	printf("\nRSA encyption: %d bits, %lu us\n", KEY_LEN * 8, timeuse);
++#endif
++	memcpy(rsa_ciphertext, kop.crk_param[3].crp_p, KEY_LEN);
++#ifdef TEST_DEBUG
++	printf("\n ciphertext: \n");
++	for (i=0; i<KEY_LEN; i++)
++	{
++		printf("%02X", rsa_ciphertext[i]);
++	}
++	printf("\n");
++#endif
++	for(i=0;i<kop.crk_iparams+kop.crk_oparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++#ifdef TEST_DEBUG
++	printf("\n RSA decryption: \n");
++#endif
++	memset(&kop, 0, sizeof(kop));
++
++	kop.crk_op = CRK_RSA_PRIVATE;
++	kop.ses = sess.ses;
++	kop.crk_param[0].crp_p = malloc(KEY_LEN);
++	memset(kop.crk_param[0].crp_p, 0, KEY_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, RSA_N);
++	kop.crk_param[0].crp_nbits = KEY_LEN * 8;
++	kop.crk_param[1].crp_p = malloc(KEY_LEN);
++	memset(kop.crk_param[1].crp_p, 0, KEY_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, RSA_D);
++	kop.crk_param[1].crp_nbits = KEY_LEN * 8;
++	kop.crk_param[2].crp_p = malloc(KEY_LEN);
++	memcpy(kop.crk_param[2].crp_p, rsa_ciphertext, KEY_LEN);
++	kop.crk_param[2].crp_nbits = KEY_LEN * 8;
++	kop.crk_param[3].crp_p = malloc(KEY_LEN);
++	kop.crk_iparams = 3;
++	kop.crk_oparams = 1;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nRSA decryption failed \n");
++		goto out_rsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++	printf("\nRSA decryption: %d bits, %lu us\n", KEY_LEN * 8, timeuse);
++#endif
++	memcpy(rsa_decrypted, kop.crk_param[3].crp_p + KEY_LEN - PT_LEN, PT_LEN);
++
++#ifdef TEST_DEBUG
++	printf("\ndecrypttext: \n");
++	for (i=0; i<PT_LEN; i++)
++	{
++		printf("%02X", rsa_decrypted[i]);
++	}
++	printf("\n");
++#endif
++
++	if (memcmp(rsa_decrypted, rsa_plaintext, PT_LEN ) != 0)
++		printf("\nRSA encyption and decryption failed\n");
++	else
++		printf("\nRSA encyption and decryption passed\n");
++	for(i=0;i<kop.crk_iparams+kop.crk_oparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++	ret = 0;
++out_rsa:
++	/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++	return ret;
++}
++
++int ecdsa_test(int cfd)
++{
++	unsigned char ecdsa_message[MSG_LEN];
++	unsigned char ecdsa_signature_c[N_LEN];
++	unsigned char ecdsa_signature_d[N_LEN];
++#ifdef TEST_DEBUG
++	struct timeval starttime, endtime;
++	unsigned long timeuse;
++#endif
++	int i, ret = 1;
++
++	struct session_op sess;
++	struct crypt_kop kop;
++
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++	sess.pk_cipher = CRYPTO_ASYMMETRIC_ECDSA_SIGN;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_ecdsa;
++	}
++
++	memcpy(ecdsa_message, ECDSA_MSG, MSG_LEN);
++#ifdef TEST_DEBUG
++	printf("\nECDSA message: \n");
++	for (i=0; i<MSG_LEN; i++)
++	{
++		printf("%02X", ecdsa_message[i]);
++	}
++	printf("\n");
++
++	printf("\nECDSA sign: \n");
++#endif
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_ECDSA_SIGN;
++	kop.crk_flags = KCOP_FLAG_INTEGER_ARITH;
++	kop.crk_param[0].crp_p = malloc(L_LEN);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, ECC_Q);
++	kop.crk_param[0].crp_nbits = L_LEN * 8;
++	
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, ECC_R);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[2].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[2].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[2].crp_p, ECC_G);
++	kop.crk_param[2].crp_nbits = L_LEN * 16;
++	
++	kop.crk_param[3].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[3].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[3].crp_p, ECC_S);
++	kop.crk_param[3].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[4].crp_p = malloc(MSG_LEN);
++	memset(kop.crk_param[4].crp_p, 0, MSG_LEN);
++	memcpy(kop.crk_param[4].crp_p, ecdsa_message, MSG_LEN);
++	kop.crk_param[4].crp_nbits = MSG_LEN * 8;
++	
++	kop.crk_param[5].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[5].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[5].crp_p, ECC_AB);
++	kop.crk_param[5].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[6].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[6].crp_p, 0, N_LEN);
++	kop.crk_param[7].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[7].crp_p, 0, N_LEN);
++	
++	kop.crk_iparams = 6;
++	kop.crk_oparams = 2;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nECDSA sign failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;	
++
++	printf("\nECDSA sign: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	memcpy(ecdsa_signature_c, kop.crk_param[6].crp_p, N_LEN);
++	memcpy(ecdsa_signature_d, kop.crk_param[7].crp_p, N_LEN);
++
++#ifdef TEST_DEBUG
++	printf("\nsignature: \n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_c[i]);
++	}
++	printf("\n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_d[i]);
++	}
++	printf("\n");
++#endif
++	for(i=0;i<kop.crk_iparams+kop.crk_oparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++#ifdef TEST_DEBUG
++	printf("\nECDSA verify: \n");
++#endif
++	memset(&kop, 0, sizeof(kop));
++
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_ECDSA_VERIFY;
++	kop.crk_flags = KCOP_FLAG_INTEGER_ARITH;
++	kop.crk_param[0].crp_p = malloc(L_LEN);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, ECC_Q);
++	kop.crk_param[0].crp_nbits = L_LEN * 8;
++	
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, ECC_R);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[2].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[2].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[2].crp_p, ECC_G);
++	kop.crk_param[2].crp_nbits = L_LEN * 16;
++	
++	kop.crk_param[3].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[3].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[3].crp_p, ECC_W);
++	kop.crk_param[3].crp_nbits = L_LEN * 16;
++	
++	kop.crk_param[4].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[4].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[4].crp_p, ecdsa_message, N_LEN);
++	kop.crk_param[4].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[5].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[5].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[5].crp_p, ecdsa_signature_c, N_LEN);
++	kop.crk_param[5].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[6].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[6].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[6].crp_p, ecdsa_signature_d, N_LEN);
++	kop.crk_param[6].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[7].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[7].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[7].crp_p, ECC_AB);
++	kop.crk_param[7].crp_nbits = L_LEN * 16;	
++	kop.crk_iparams = 8;
++	
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nECDSA verify failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++	printf("\nECDSA verify: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	if (0 == kop.crk_status)
++		printf("\nECDSA sign and verify failed\n");
++	else {
++		printf("\nECDSA sign and verify passed\n");
++		ret = 0;
++	}
++	for(i=0;i<kop.crk_iparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++out_ecdsa:
++	/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++	return ret;
++}
++static inline int int_swap(unsigned char *A, unsigned short sizeA)
++{
++	int i;
++	unsigned char *p;
++	
++	p = (unsigned char *)malloc(sizeA);
++	
++	if (!p)
++		return -1;
++
++	memcpy(p, A, sizeA);
++
++	for(i = 0; i < sizeA; i++)
++		A[i] = p[sizeA - 1 - i];
++
++	free(p);
++
++	return 0;
++}
++
++int manufacturing_protection_test(int cfd)
++{
++	unsigned char ecdsa_message[MSG_LEN];
++	unsigned char ecdsa_signature_c[N_LEN];
++	unsigned char ecdsa_signature_d[N_LEN];
++	unsigned char mp_public_key[N_LEN*2];
++
++	int i, ret = 1;
++
++	struct session_op sess;
++	struct crypt_kop kop;
++
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++	sess.pk_cipher = CRYPTO_MP_GET_PUBK;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_mp;
++	}
++
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_MP_GET_PUBK;
++	kop.crk_flags = KCOP_FLAG_MP_CSEL_P256;
++	kop.crk_param[0].crp_p = mp_public_key;
++	memset(kop.crk_param[0].crp_p, 0, N_LEN*2);
++	kop.crk_param[0].crp_nbits = N_LEN * 2 * 8;
++	kop.crk_iparams = 0;
++	kop.crk_oparams = 1;
++
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nMP get public key failed \n");
++		goto out_mp;
++	}
++#ifdef TEST_DEBUG
++	printf("\nPublic key: \n");
++	for (i=0; i<N_LEN*2; i++)
++	{
++		printf("%02X", mp_public_key[i]);
++	}
++	printf("\n");
++
++#endif
++
++	memcpy(ecdsa_message, ECDSA_MSG, MSG_LEN);
++#ifdef TEST_DEBUG
++	printf("\nMP message: \n");
++	for (i=0; i<MSG_LEN; i++)
++	{
++		printf("%02X", ecdsa_message[i]);
++	}
++	printf("\n");
++
++	printf("\nMP sign: \n");
++#endif
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_MP_SIGN;
++	kop.crk_flags = KCOP_FLAG_MP_CSEL_P256;
++	kop.crk_param[0].crp_p = malloc(MSG_LEN);
++	memset(kop.crk_param[0].crp_p, 0, MSG_LEN);
++	memcpy(kop.crk_param[0].crp_p, ecdsa_message, MSG_LEN);
++	kop.crk_param[0].crp_nbits = MSG_LEN * 8;
++	
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	kop.crk_param[2].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[2].crp_p, 0, N_LEN);
++	kop.crk_param[3].crp_p = malloc(32);
++	memset(kop.crk_param[3].crp_p, 0, 32);
++	
++	kop.crk_iparams = 1;
++	kop.crk_oparams = 3;
++
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nMP sign failed \n");
++		goto out_mp;
++	}
++	
++	memcpy(ecdsa_signature_c, kop.crk_param[1].crp_p, N_LEN);
++	memcpy(ecdsa_signature_d, kop.crk_param[2].crp_p, N_LEN);
++
++#ifdef TEST_DEBUG
++	printf("\nsignature: \n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_c[i]);
++	}
++	printf("\n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_d[i]);
++	}
++	printf("\n");
++#endif
++	for(i=0;i<kop.crk_iparams+kop.crk_oparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++#ifdef TEST_DEBUG
++	printf("\nMP verify: \n");
++#endif
++	memset(&kop, 0, sizeof(kop));
++
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_ECDSA_VERIFY;
++	kop.crk_flags = KCOP_FLAG_INTEGER_ARITH;
++	kop.crk_param[0].crp_p = malloc(L_LEN);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, ECC_Q);
++	kop.crk_param[0].crp_nbits = L_LEN * 8;
++	
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, ECC_R);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[2].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[2].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[2].crp_p, ECC_G);
++	kop.crk_param[2].crp_nbits = L_LEN * 16;
++	
++	kop.crk_param[3].crp_p = malloc(L_LEN*2);
++	memcpy(kop.crk_param[3].crp_p, mp_public_key, L_LEN*2);
++	kop.crk_param[3].crp_nbits = L_LEN * 16;
++	
++	kop.crk_param[4].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[4].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[4].crp_p, ecdsa_message, N_LEN);
++	kop.crk_param[4].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[5].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[5].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[5].crp_p, ecdsa_signature_c, N_LEN);
++	kop.crk_param[5].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[6].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[6].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[6].crp_p, ecdsa_signature_d, N_LEN);
++	kop.crk_param[6].crp_nbits = N_LEN * 8;
++	
++	kop.crk_param[7].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[7].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[7].crp_p, ECC_AB);
++	kop.crk_param[7].crp_nbits = L_LEN * 16;	
++	kop.crk_iparams = 8;
++
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nECDSA verify failed \n");
++		goto out_mp;
++	}
++	if (0 == kop.crk_status)
++		printf("\nMP sign and verify failed\n");
++	else {
++		printf("\nMP sign and verify passed\n");
++		ret = 0;
++	}
++	for(i=0;i<kop.crk_iparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++out_mp:
++	/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++	return ret;
++}
++
++int
++main(int argc, char** argv)
++{
++	int fd = -1;
++
++	/* Open the crypto device */
++	fd = open("/dev/crypto", O_RDWR, 0);
++	if (fd < 0) {
++		perror("open(/dev/crypto)");
++		return 1;
++	}
++
++	if (ioctl(fd, CIOCASYMFEAT, &cryptodev_asymfeat) == -1) {
++		perror("get asymmetric feat");
++    }
++
++	if ((cryptodev_asymfeat & CRF_RSA_PUBLIC) && (cryptodev_asymfeat & CRF_RSA_PRIVATE)) {
++		/* Run the test itself */
++		if (rsa_test(fd))
++			goto out;
++	}
++
++	if ((cryptodev_asymfeat & CRF_ECDSA_SIGN) && (cryptodev_asymfeat & CRF_ECDSA_VERIFY)) {
++		if (ecdsa_test(fd))
++			goto out;
++	}
++	if ((cryptodev_asymfeat & CRF_MP_GET_PUBK ) && (cryptodev_asymfeat & CRF_MP_SIGN)) {
++		if (manufacturing_protection_test(fd))
++			goto out;
++	}
++
++out:
++	/* Close the original descriptor */
++	if (close(fd)) {
++		perror("close(fd)");
++		return 1;
++	}
++
++	return 0;
++}
++
+diff --git a/tests/cv2x-verify.c b/tests/cv2x-verify.c
+new file mode 100644
+index 0000000..da55d7c
+--- /dev/null
++++ b/tests/cv2x-verify.c
+@@ -0,0 +1,581 @@
++/*
++ * Demo on how to use /dev/crypto device for ciphering.
++ *
++ * Placed under public domain.
++ *
++ */
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>
++
++#include <sys/ioctl.h>
++#include <sys/time.h>
++#include <crypto/cryptodev.h>
++
++static unsigned int cryptodev_asymfeat = 0;
++
++#define TEST_DEBUG
++#define USE_SIGN
++
++/* SECP256R1 256-bits NIST curve */
++#define L_LEN 32
++#define N_LEN 32
++#define NISTP256_Q "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF"
++#define NISTP256_R "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"
++#define NISTP256_AB "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B"
++#define NISTP256_G "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C2964FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5"
++#define NISTP256_S "168ec8bb1b01d4873441a2190cab5bfbdb70a7cd4fac3d93780b24f5f0b7951e"
++#define NISTP256_W "5b2b65a9bd28fdc3f4f1a7a3ed221edb1203516f694c7bdc29b4893af8468f0084347da61d1e8011452bdadf809d1534ca3204f97ccb16235dcde16155d2b842"
++#define NISTP256_r "\xC3\x8E\xAC\x8F\x44\xC5\x88\x12\xAE\x2A\x39\xD4\x62\x4C\x7B\x2D\xC7\x69\x38\x83\x77\x6C\x93\x90\xC4\xBF\x57\xC8\xF3\xBC\x73\x2D"
++#define NISTP256_s "\x4B\x9E\xD2\x57\x25\x5C\xB0\x09\x53\xA5\x30\x88\x7D\x7A\x9F\x36\x14\x5B\x73\x59\x28\xED\xD3\xB7\xA3\x62\x5B\x3E\xCD\x62\x0E\x2E"
++
++
++/* Brainpool Prime-Curve brainpoolP256r1 */
++#define BPP256R1_Q "A9FB57DBA1EEA9BC3E660A909D838D726E3BF623D52620282013481D1F6E5377"
++#define BPP256R1_R "A9FB57DBA1EEA9BC3E660A909D838D718C397AA3B561A6F7901E0E82974856A7"
++#define BPP256R1_AB "7D5A0975FC2C3057EEF67530417AFFE7FB8055C126DC5C6CE94A4B44F330B5D926DC5C6CE94A4B44F330B5D9BBD77CBF958416295CF7E1CE6BCCDC18FF8C07B6"
++#define BPP256R1_G "8BD2AEB9CB7E57CB2C4B482FFC81B7AFB9DE27E1E3BD23C23A4453BD9ACE3262547EF835C3DAC4FD97F8461A14611DC9C27745132DED8E545C1D54C72F046997"
++#define BPP256R1_S "6fdeca25f795a092ea7d39075aeae31d277093b734232706268ee05fcf5ca1c1"
++#define BPP256R1_W "6964a7a9f60dda43ea543f55ff4dae1d5adca551f0b68c21b345bb62a2af567b6616b638028b80a382ab54111c1217167bfd312f80f5f0d5681065117fd2a5a9"
++#define BPP256R1_r "\xA9\x99\xFA\x73\xAF\x27\xF0\xE2\x17\x99\x82\xF9\xC7\xFD\x85\xF8\x95\x25\x4C\x3D\x7A\x31\x6F\x9D\x22\x30\x1C\x8D\xCE\x92\x89\x29"
++#define BPP256R1_s "\x07\x17\x7B\xC1\x22\x0C\x72\x2A\xC3\x6D\xB9\xD3\x2D\x96\xDC\x9B\x66\xBC\x09\xFD\x36\x0E\x95\x15\xAD\x2E\xE1\xD5\x38\xF6\x36\x9A"
++
++
++#define MSG_LEN 32
++#define ECDSA_MSG "\x01\x1E\x53\x5F\xCE\x04\xC5\x72\xA5\xA4\x47\xC4\xF2\x91\x73\xAF\x0D\xB5\xDC\xED\x1B\xE5\x33\xA6\xBE\xC9\x42\xFC\x4D\x35\x6E\x4A"
++
++#define P_LEN 32
++static const char* sm2_parameter =
++"\xF5\xA0\x3B\x06\x48\xD2\xC4\x63\x0E\xEA\xC5\x13\xE1\xBB\x81\xA1\x59\x44\xDA\x38\x27\xD5\xB7\x41\x43\xAC\x7E\xAC\xEE\xE7\x20\xB3"  /* r */
++"\xB1\xB6\xAA\x29\xDF\x21\x2F\xD8\x76\x31\x82\xBC\x0D\x42\x1C\xA1\xBB\x90\x38\xFD\x1F\x7F\x42\xD4\x84\x0B\x69\xC4\x85\xBB\xC1\xAA" /* s */
++"\xF0\xB4\x3E\x94\xBA\x45\xAC\xCA\xAC\xE6\x92\xED\x53\x43\x82\xEB\x17\xE6\xAB\x5A\x19\xCE\x7B\x31\xF4\x48\x6F\xDF\xC0\xD2\x86\x40"  /* e */
++"\x09\xF9\xDF\x31\x1E\x54\x21\xA1\x50\xDD\x7D\x16\x1E\x4B\xC5\xC6\x72\x17\x9F\xAD\x18\x33\xFC\x07\x6B\xB0\x8F\xF3\x56\xF3\x50\x20" /* xA */
++"\xCC\xEA\x49\x0C\xE2\x67\x75\xA5\x2D\xC6\xEA\x71\x8C\xC1\xAA\x60\x0A\xED\x05\xFB\xF3\x5E\x08\x4A\x66\x32\xF6\x07\x2D\xA9\xAD\x13" ;/* yA */
++
++
++static int int_from_hstring(unsigned char *A, const char *s)
++{
++	int i, j, slen;
++	unsigned int d;
++	char c;
++
++	slen = strlen(s);
++
++	for (i=0, j=0; i<slen; i++, j++) {
++		d = 255;
++		c = s[i];
++
++		if(c >= '0' && c <= '9') d = c - '0';
++		if(c >= 'A' && c <= 'F') d = c - '7';
++		if(c >= 'a' && c <= 'f') d = c - 'W';
++		A[j/2] |= d << (((j + 1) % 2) << 2);
++	}
++
++	return 0;
++}
++static inline int int_swap(unsigned char *A, unsigned short sizeA)
++{
++	int i;
++	unsigned char *p;
++
++	p = (unsigned char *)malloc(sizeA);
++
++	if (!p)
++		return -1;
++
++	memcpy(p, A, sizeA);
++
++	for(i = 0; i < sizeA; i++)
++		A[i] = p[sizeA - 1 - i];
++
++	free(p);
++
++	return 0;
++}
++
++int cv2x_nistp256_verify(int cfd)
++{
++	unsigned char ecdsa_message[MSG_LEN];
++	unsigned char ecdsa_signature_c[N_LEN];
++	unsigned char ecdsa_signature_d[N_LEN];
++	struct timeval starttime, endtime;
++	unsigned long timeuse;
++	int i, ret = 1;
++
++	struct session_op sess;
++	struct crypt_kop kop;
++
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++#ifdef USE_SIGN
++	sess.pk_cipher = CRYPTO_ASYMMETRIC_ECDSA_SIGN;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_ecdsa;
++	}
++
++	memcpy(ecdsa_message, ECDSA_MSG, MSG_LEN);
++#ifdef TEST_DEBUG
++	printf("\nECDSA message: \n");
++	for (i=0; i<MSG_LEN; i++)
++	{
++		printf("%02X", ecdsa_message[i]);
++	}
++	printf("\n");
++
++	printf("\nECDSA nistp256 sign: \n");
++#endif
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_ECDSA_SIGN;
++	kop.crk_flags = KCOP_FLAG_INTEGER_ARITH;
++	kop.crk_param[0].crp_p = malloc(L_LEN);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, NISTP256_Q);
++	kop.crk_param[0].crp_nbits = L_LEN * 8;
++
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, NISTP256_R);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[2].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[2].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[2].crp_p, NISTP256_G);
++	kop.crk_param[2].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[3].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[3].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[3].crp_p, NISTP256_S);
++	kop.crk_param[3].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[4].crp_p = malloc(MSG_LEN);
++	memset(kop.crk_param[4].crp_p, 0, MSG_LEN);
++	memcpy(kop.crk_param[4].crp_p, ecdsa_message, MSG_LEN);
++	kop.crk_param[4].crp_nbits = MSG_LEN * 8;
++
++	kop.crk_param[5].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[5].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[5].crp_p, NISTP256_AB);
++	kop.crk_param[5].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[6].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[6].crp_p, 0, N_LEN);
++	kop.crk_param[7].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[7].crp_p, 0, N_LEN);
++
++	kop.crk_iparams = 6;
++	kop.crk_oparams = 2;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nECDSA nistp256 sign failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++
++	printf("\nECDSA nistp256 sign: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	memcpy(ecdsa_signature_c, kop.crk_param[6].crp_p, N_LEN);
++	memcpy(ecdsa_signature_d, kop.crk_param[7].crp_p, N_LEN);
++
++#ifdef TEST_DEBUG
++	printf("\nsignature: \n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_c[i]);
++	}
++	printf("\n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_d[i]);
++	}
++	printf("\n");
++#endif
++/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++
++	for(i=0;i<kop.crk_iparams+kop.crk_oparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++#else
++	memcpy(ecdsa_message, ECDSA_MSG, MSG_LEN);
++	memcpy(ecdsa_signature_c,NISTP256_r,N_LEN);
++	memcpy(ecdsa_signature_d,NISTP256_s,N_LEN);
++
++#endif
++#ifdef TEST_DEBUG
++	printf("\n C-V2X nistp256 verify: \n");
++#endif
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++	sess.pk_cipher = CRYPTO_CV2X_NISTP256_VERIFY;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_ecdsa;
++	}
++
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_CV2X_VERIFY;
++
++	kop.crk_param[0].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[0].crp_p, NISTP256_W);
++	kop.crk_param[0].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[1].crp_p, ecdsa_message, N_LEN);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[2].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[2].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[2].crp_p, ecdsa_signature_c, N_LEN);
++	kop.crk_param[2].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[3].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[3].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[3].crp_p, ecdsa_signature_d, N_LEN);
++	kop.crk_param[3].crp_nbits = N_LEN * 8;
++
++	kop.crk_iparams = 4;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\n C-V2X nistp256 verify failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++	printf("\n C-V2X nistp256 verify: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	if (0 == kop.crk_status)
++		printf("\n C-V2X nistp256 sign and verify failed\n");
++	else {
++		printf("\n C-V2X nistp256 sign and verify passed\n");
++		ret = 0;
++	}
++	for(i=0;i<kop.crk_iparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++out_ecdsa:
++	/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++	return ret;
++}
++
++int cv2x_bpp256r1_verify(int cfd)
++{
++	unsigned char ecdsa_message[MSG_LEN];
++	unsigned char ecdsa_signature_c[N_LEN];
++	unsigned char ecdsa_signature_d[N_LEN];
++	struct timeval starttime, endtime;
++	unsigned long timeuse;
++	int i, ret = 1;
++
++	struct session_op sess;
++	struct crypt_kop kop;
++
++#ifdef USE_SIGN
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++	sess.pk_cipher = CRYPTO_ASYMMETRIC_ECDSA_SIGN;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_ecdsa;
++	}
++
++	memcpy(ecdsa_message, ECDSA_MSG, MSG_LEN);
++#ifdef TEST_DEBUG
++	printf("\nECDSA message: \n");
++	for (i=0; i<MSG_LEN; i++)
++	{
++		printf("%02X", ecdsa_message[i]);
++	}
++	printf("\n");
++
++	printf("\nECDSA BPp256r1 sign: \n");
++#endif
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_ECDSA_SIGN;
++	kop.crk_flags = KCOP_FLAG_INTEGER_ARITH;
++	kop.crk_param[0].crp_p = malloc(L_LEN);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN);
++	int_from_hstring(kop.crk_param[0].crp_p, BPP256R1_Q);
++	kop.crk_param[0].crp_nbits = L_LEN * 8;
++
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[1].crp_p, BPP256R1_R);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[2].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[2].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[2].crp_p, BPP256R1_G);
++	kop.crk_param[2].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[3].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[3].crp_p, 0, N_LEN);
++	int_from_hstring(kop.crk_param[3].crp_p, BPP256R1_S);
++	kop.crk_param[3].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[4].crp_p = malloc(MSG_LEN);
++	memset(kop.crk_param[4].crp_p, 0, MSG_LEN);
++	memcpy(kop.crk_param[4].crp_p, ecdsa_message, MSG_LEN);
++	kop.crk_param[4].crp_nbits = MSG_LEN * 8;
++
++	kop.crk_param[5].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[5].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[5].crp_p, BPP256R1_AB);
++	kop.crk_param[5].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[6].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[6].crp_p, 0, N_LEN);
++	kop.crk_param[7].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[7].crp_p, 0, N_LEN);
++
++	kop.crk_iparams = 6;
++	kop.crk_oparams = 2;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\nECDSA BPp256r1 sign failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++
++	printf("\nECDSA BPp256r1 sign: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	memcpy(ecdsa_signature_c, kop.crk_param[6].crp_p, N_LEN);
++	memcpy(ecdsa_signature_d, kop.crk_param[7].crp_p, N_LEN);
++
++#ifdef TEST_DEBUG
++	printf("\nsignature: \n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_c[i]);
++	}
++	printf("\n");
++	for (i=0; i<N_LEN; i++)
++	{
++		printf("%02X", ecdsa_signature_d[i]);
++	}
++	printf("\n");
++#endif
++/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++
++	for(i=0;i<kop.crk_iparams+kop.crk_oparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++#else
++	memcpy(ecdsa_message, ECDSA_MSG, MSG_LEN);
++	memcpy(ecdsa_signature_c,BPP256R1_r,N_LEN);
++	memcpy(ecdsa_signature_d,BPP256R1_s,N_LEN);
++
++#endif
++
++#ifdef TEST_DEBUG
++	printf("\n C-V2X BPp256r1 verify: \n");
++#endif
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++	sess.pk_cipher = CRYPTO_CV2X_BP_P256R1_VERIFY;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_ecdsa;
++	}
++
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_CV2X_VERIFY;
++
++	kop.crk_param[0].crp_p = malloc(L_LEN*2);
++	memset(kop.crk_param[0].crp_p, 0, L_LEN*2);
++	int_from_hstring(kop.crk_param[0].crp_p, BPP256R1_W);
++	kop.crk_param[0].crp_nbits = L_LEN * 16;
++
++	kop.crk_param[1].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[1].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[1].crp_p, ecdsa_message, N_LEN);
++	kop.crk_param[1].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[2].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[2].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[2].crp_p, ecdsa_signature_c, N_LEN);
++	kop.crk_param[2].crp_nbits = N_LEN * 8;
++
++	kop.crk_param[3].crp_p = malloc(N_LEN);
++	memset(kop.crk_param[3].crp_p, 0, N_LEN);
++	memcpy(kop.crk_param[3].crp_p, ecdsa_signature_d, N_LEN);
++	kop.crk_param[3].crp_nbits = N_LEN * 8;
++
++	kop.crk_iparams = 4;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\n C-V2X BPp256r1 verify failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++	printf("\n C-V2X BPp256r1 verify: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	if (0 == kop.crk_status)
++		printf("\n C-V2X BPp256r1 sign and verify failed\n");
++	else {
++		printf("\n C-V2X BPp256r1 sign and verify passed\n");
++		ret = 0;
++	}
++	for(i=0;i<kop.crk_iparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++out_ecdsa:
++	/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++	return ret;
++}
++
++int cv2x_sm2_verify(int cfd)
++{
++	struct timeval starttime, endtime;
++	unsigned long timeuse;
++	int i, ret = 1;
++
++	struct session_op sess;
++	struct crypt_kop kop;
++
++	memset(&sess, 0, sizeof(sess));
++	memset(&kop, 0, sizeof(kop));
++
++#ifdef TEST_DEBUG
++	printf("\n C-V2X SM2 verify: \n");
++#endif
++
++	sess.pk_cipher = CRYPTO_CV2X_SM2_VERIFY;
++	if (ioctl(cfd, CIOCGSESSION, &sess)) {
++		perror("ioctl(CIOCGSESSION)");
++		goto out_ecdsa;
++	}
++
++	kop.ses = sess.ses;
++	kop.crk_op = CRK_CV2X_VERIFY;
++
++	/*xA*/
++	kop.crk_param[0].crp_p = malloc(P_LEN);
++	memcpy(kop.crk_param[0].crp_p, sm2_parameter + (3*P_LEN), P_LEN);
++	kop.crk_param[0].crp_nbits = P_LEN * 8;
++	/*yA*/
++	kop.crk_param[1].crp_p = malloc(P_LEN);
++	memcpy(kop.crk_param[1].crp_p, sm2_parameter + (4*P_LEN), P_LEN);
++	kop.crk_param[1].crp_nbits = P_LEN * 8;
++	/*e*/
++	kop.crk_param[2].crp_p = malloc(P_LEN);
++	memcpy(kop.crk_param[2].crp_p, sm2_parameter + (2*P_LEN), P_LEN);
++	kop.crk_param[2].crp_nbits = P_LEN * 8;
++	/*r*/
++	kop.crk_param[3].crp_p = malloc(P_LEN);
++	memcpy(kop.crk_param[3].crp_p, sm2_parameter, P_LEN);
++	kop.crk_param[3].crp_nbits = P_LEN * 8;
++
++	/*s*/
++	kop.crk_param[4].crp_p = malloc(P_LEN);
++	memcpy(kop.crk_param[4].crp_p, sm2_parameter + P_LEN, P_LEN);
++	kop.crk_param[4].crp_nbits = P_LEN * 8;
++
++	kop.crk_iparams = 5;
++
++#ifdef TEST_DEBUG
++	gettimeofday(&starttime, NULL);
++#endif
++	if (ioctl(cfd, CIOCKEY, &kop)) {
++		perror("\n C-V2X SM2 verify failed \n");
++		goto out_ecdsa;
++	}
++#ifdef TEST_DEBUG
++	gettimeofday(&endtime, NULL);
++	timeuse = 1000000 * (endtime.tv_sec - starttime.tv_sec) + endtime.tv_usec - starttime.tv_usec;
++	printf("\n C-V2X SM2 verify: %d bits, %lu us\n", L_LEN * 8, timeuse);
++#endif
++	if (0 == kop.crk_status)
++		printf("\n C-V2X SM2 failed\n");
++	else {
++		printf("\n C-V2X SM2 passed\n");
++		ret = 0;
++	}
++	for(i=0;i<kop.crk_iparams;i++) {
++		if (kop.crk_param[i].crp_p)
++			free(kop.crk_param[i].crp_p);
++	}
++out_ecdsa:
++	/* Finish session */
++	if (ioctl(cfd, CIOCFSESSION, &sess.ses)) {
++		perror("ioctl(CIOCFSESSION)");
++	}
++	return ret;
++}
++
++int
++main(int argc, char** argv)
++{
++	int fd = -1;
++
++	/* Open the crypto device */
++	fd = open("/dev/crypto", O_RDWR, 0);
++	if (fd < 0) {
++		perror("open(/dev/crypto)");
++		return 1;
++	}
++
++	if (ioctl(fd, CIOCASYMFEAT, &cryptodev_asymfeat) == -1) {
++		perror("get asymmetric feat");
++    }
++
++
++	if ((cryptodev_asymfeat & CRF_ECDSA_SIGN) && (cryptodev_asymfeat & CRF_CV2X_VERIFY)) {
++		if (cv2x_nistp256_verify(fd))
++			goto out;
++		if (cv2x_bpp256r1_verify(fd))
++			goto out;
++		if (cv2x_sm2_verify(fd))
++			goto out;
++	}
++
++out:
++	/* Close the original descriptor */
++	if (close(fd)) {
++		perror("close(fd)");
++		return 1;
++	}
++
++	return 0;
++}
+-- 
+2.33.0
+

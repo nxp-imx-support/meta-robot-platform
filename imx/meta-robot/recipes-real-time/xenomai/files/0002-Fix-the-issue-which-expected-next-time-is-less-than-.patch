@@ -1,0 +1,45 @@
+From a2496e3e372256738ce84b00ca7d79daf45e4e74 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Thu, 4 Nov 2021 17:11:45 +0800
+Subject: [PATCH 2/5] Fix the issue which expected next time is less than now
+ time
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ demo/posix/cyclictest/cyclictest.c | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/demo/posix/cyclictest/cyclictest.c b/demo/posix/cyclictest/cyclictest.c
+index b92596c25..58e337f3f 100644
+--- a/demo/posix/cyclictest/cyclictest.c
++++ b/demo/posix/cyclictest/cyclictest.c
+@@ -346,10 +346,13 @@ static inline int64_t calcdiff_ns(struct timespec t1, struct timespec t2)
+ 	
+ 	r.tv_sec = t1.tv_sec - t2.tv_sec;
+ 	r.tv_nsec = t1.tv_nsec - t2.tv_nsec;
+-	if (r.tv_nsec < 0) {
++	if (r.tv_nsec < 0 && t1.tv_sec > t2.tv_sec) {
+ 		r.tv_sec--;
+ 		r.tv_nsec += NSEC_PER_SEC;
+ 	}
++	else if (r.tv_nsec < 0) {
++		r.tv_nsec = 0;
++	}
+ 
+ 	return r.tv_sec * NSEC_PER_SEC + r.tv_nsec;
+ }
+@@ -927,9 +930,9 @@ void *timerthread(void *param)
+ 			diff = calcdiff_ns(now, next);
+ 		else
+ 			diff = calcdiff(now, next);
+-		if (diff < stat->min)
++		if (diff < stat->min && diff >= 0)
+ 			stat->min = diff;
+-		if (diff > stat->max) {
++		if (diff > stat->max && diff > 0) {
+ 			stat->max = diff;
+ 			if (refresh_on_max)
+ 				pthread_cond_signal(&refresh_on_max_cond);
+-- 
+2.35.1
+

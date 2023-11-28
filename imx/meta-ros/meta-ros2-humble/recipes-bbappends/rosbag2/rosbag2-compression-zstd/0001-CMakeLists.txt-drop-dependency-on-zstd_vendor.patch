@@ -1,0 +1,47 @@
+From 77af855624867361bf35aa13516af021ff0c0be0 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 28 Apr 2023 10:22:53 +0800
+Subject: [PATCH] CMakeLists.txt: drop dependency on zstd_vendor
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0c0402f88..65ba72e9e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -24,8 +24,8 @@ find_package(ament_cmake REQUIRED)
+ find_package(pluginlib REQUIRED)
+ find_package(rcpputils REQUIRED)
+ find_package(rosbag2_compression REQUIRED)
+-find_package(zstd_vendor REQUIRED)
+-find_package(zstd REQUIRED)
++find_package(PkgConfig REQUIRED)
++pkg_check_modules(ZSTD libzstd REQUIRED)
+ 
+ add_library(${PROJECT_NAME} SHARED
+   src/rosbag2_compression_zstd/compression_utils.cpp
+@@ -37,8 +37,7 @@ target_include_directories(${PROJECT_NAME}
+   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
+ ament_target_dependencies(${PROJECT_NAME}
+   rcpputils
+-  rosbag2_compression
+-  zstd)
++  rosbag2_compression)
+ target_compile_definitions(${PROJECT_NAME} PRIVATE ROSBAG2_COMPRESSION_ZSTD_BUILDING_DLL)
+ pluginlib_export_plugin_description_file(rosbag2_compression plugin_description.xml)
+ 
+@@ -61,7 +60,7 @@ ament_export_libraries(${PROJECT_NAME})
+ ament_export_targets(export_${PROJECT_NAME})
+ 
+ # order matters here, first vendor, then zstd
+-ament_export_dependencies(rcpputils rosbag2_compression zstd_vendor zstd)
++ament_export_dependencies(rcpputils rosbag2_compression)
+ 
+ 
+ if(BUILD_TESTING)
+-- 
+2.35.1
+

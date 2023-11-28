@@ -1,0 +1,59 @@
+From 305cc71d15a6110c737fc24c602dec24cecf870e Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 28 Apr 2023 13:32:16 +0800
+Subject: [PATCH] CmakeLists.txt: Add correct suffix name for rosbag2_py C
+ extension
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 25 ++++++++++++++++++++++---
+ 1 file changed, 22 insertions(+), 3 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e72dd233e..3f36b7137 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -15,11 +15,11 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+   add_compile_options(-Wall -Wextra -Wpedantic)
+ endif()
+ 
++find_package(python_cmake_module REQUIRED)
++find_package(PythonExtra REQUIRED)
++
+ # Figure out Python3 debug/release before anything else can find_package it
+ if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+-  find_package(python_cmake_module REQUIRED)
+-  find_package(PythonExtra REQUIRED)
+-
+   # Force FindPython3 to use the debug interpreter where ROS 2 expects it
+   set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE_DEBUG}")
+ endif()
+@@ -93,6 +93,25 @@ ament_target_dependencies(_reindexer PUBLIC
+   "rosbag2_storage"
+ )
+ 
++set_target_properties(_reader PROPERTIES
++    OUTPUT_NAME "_reader${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
++set_target_properties(_storage PROPERTIES
++    OUTPUT_NAME "_storage${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
++set_target_properties(_writer PROPERTIES
++    OUTPUT_NAME "_writer${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
++set_target_properties(_info PROPERTIES
++    OUTPUT_NAME "_info${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
++set_target_properties(_transport PROPERTIES
++    OUTPUT_NAME "_transport${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
++set_target_properties(_reindexer PROPERTIES
++    OUTPUT_NAME "_reindexer${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
++
+ # Install cython modules as sub-modules of the project
+ install(
+   TARGETS
+-- 
+2.35.1
+

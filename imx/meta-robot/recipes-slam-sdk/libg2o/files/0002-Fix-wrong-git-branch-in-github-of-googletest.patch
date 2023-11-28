@@ -1,0 +1,26 @@
+From 22f06e3e501e77634ef557a4fc1ff3aab82e72c6 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 13 May 2022 14:46:38 +0800
+Subject: [PATCH 2/3] Fix wrong git branch in github of googletest
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ unit_test/gtest/CMakeLists.txt.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/unit_test/gtest/CMakeLists.txt.in b/unit_test/gtest/CMakeLists.txt.in
+index d60a33e9..8003c2c0 100644
+--- a/unit_test/gtest/CMakeLists.txt.in
++++ b/unit_test/gtest/CMakeLists.txt.in
+@@ -5,7 +5,7 @@ project(googletest-download NONE)
+ include(ExternalProject)
+ ExternalProject_Add(googletest
+   GIT_REPOSITORY    https://github.com/google/googletest.git
+-  GIT_TAG           master
++  GIT_TAG           main
+   SOURCE_DIR        "${CMAKE_BINARY_DIR}/googletest-src"
+   BINARY_DIR        "${CMAKE_BINARY_DIR}/googletest-build"
+   CONFIGURE_COMMAND ""
+-- 
+2.25.1
+

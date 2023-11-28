@@ -1,0 +1,30 @@
+From 247efd4ab734e67f565dbfed7fde101d4aa8e246 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 18 Apr 2023 17:16:20 +0800
+Subject: [PATCH] CMakeLists.txt: set path of cmake file
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 258d3a5..c8b8590 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -26,9 +26,9 @@ find_package(iceoryx_hoofs REQUIRED)
+ find_package(iceoryx_posh REQUIRED)
+ 
+ 
+-include(IceoryxPackageHelper)
+-include(IceoryxPlatform)
+-include(IceoryxPoshDeployment)
++include(../recipe-sysroot/usr/lib/cmake/iceoryx_hoofs/IceoryxPackageHelper.cmake)
++include(../recipe-sysroot/usr/lib/cmake/iceoryx_hoofs/IceoryxPlatform.cmake)
++include(../recipe-sysroot/usr/lib/cmake/iceoryx_posh/IceoryxPoshDeployment.cmake)
+ 
+ if(CMAKE_SYSTEM_NAME MATCHES Linux OR CMAKE_SYSTEM_NAME MATCHES Darwin)
+     option(BUILD_SHARED_LIBS "Create shared libraries by default" ON)
+-- 
+2.35.1
+

@@ -1,0 +1,42 @@
+From 90c1b5f51ebf26b63b51bd09ddc76499f81f821b Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Mon, 20 Feb 2023 14:41:53 +0800
+Subject: [PATCH] Add libusb in cmake file
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 91db504..d1b5a32 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -6,6 +6,9 @@ find_package(catkin REQUIRED COMPONENTS roscpp camera_info_manager dynamic_recon
+ 
+ generate_dynamic_reconfigure_options(cfg/UVCCamera.cfg)
+ 
++find_package(PkgConfig)
++pkg_check_modules(LIBUSB1 libusb-1.0)
++
+ find_package(libuvc REQUIRED)
+ message(STATUS "libuvc ${libuvc_VERSION_MAJOR}.${libuvc_VERSION_MINOR}.${libuvc_VERSION_PATCH}")
+ 
+@@ -30,12 +33,12 @@ find_package(Boost REQUIRED COMPONENTS thread)
+ include_directories(${Boost_INCLUDE_DIRS})
+ 
+ add_executable(camera_node src/main.cpp src/camera_driver.cpp)
+-target_link_libraries(camera_node ${libuvc_LIBRARIES} ${Boost_LIBRARIES} ${catkin_LIBRARIES})
++target_link_libraries(camera_node ${CMAKE_CURRENT_LIST_DIR}/../recipe-sysroot${libuvc_LIBRARIES} -lusb-1.0 ${Boost_LIBRARIES} ${catkin_LIBRARIES})
+ add_dependencies(camera_node ${PROJECT_NAME}_gencfg)
+ 
+ add_library(libuvc_camera_nodelet src/nodelet.cpp src/camera_driver.cpp)
+ add_dependencies(libuvc_camera_nodelet ${libuvc_camera_EXPORTED_TARGETS})
+-target_link_libraries(libuvc_camera_nodelet ${libuvc_LIBRARIES} ${Boost_LIBRARIES} ${catkin_LIBRARIES})
++target_link_libraries(libuvc_camera_nodelet ${CMAKE_CURRENT_LIST_DIR}/../recipe-sysroot${libuvc_LIBRARIES} -lusb-1.0 ${Boost_LIBRARIES} ${catkin_LIBRARIES})
+ add_dependencies(libuvc_camera_nodelet ${PROJECT_NAME}_gencfg)
+ 
+ install(TARGETS camera_node libuvc_camera_nodelet
+-- 
+2.35.1
+

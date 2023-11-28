@@ -1,0 +1,106 @@
+From b96b5e36a0df4a2ebd88b8f685bd3d0be1f946a5 Mon Sep 17 00:00:00 2001
+From: Xiaodong Zhang <xiaodong.zhang@nxp.com>
+Date: Mon, 24 Feb 2020 11:30:08 +0800
+Subject: [PATCH] To fix the errors for Yocto build
+
+---
+ cmake/OpenCVPCHSupport.cmake               | 2 ++
+ modules/ts/include/opencv2/ts.hpp          | 4 ++--
+ modules/ts/include/opencv2/ts/ocl_test.hpp | 2 +-
+ modules/ts/include/opencv2/ts/ts_ext.hpp   | 2 +-
+ modules/videoio/src/cap_ffmpeg_impl.hpp    | 8 ++++++++
+ 5 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/cmake/OpenCVPCHSupport.cmake b/cmake/OpenCVPCHSupport.cmake
+old mode 100644
+new mode 100755
+index 08cd06def4..46c9c02da3
+--- a/cmake/OpenCVPCHSupport.cmake
++++ b/cmake/OpenCVPCHSupport.cmake
+@@ -18,6 +18,8 @@ IF(CV_GCC)
+         SET(PCHSupport_FOUND TRUE)
+     ENDIF()
+ 
++    SET(CMAKE_INCLUDE_SYSTEM_FLAG_C "-I")
++    SET(CMAKE_INCLUDE_SYSTEM_FLAG_CXX "-I")
+     SET(_PCH_include_prefix "-I")
+     SET(_PCH_isystem_prefix "-isystem")
+     SET(_PCH_define_prefix "-D")
+diff --git a/modules/ts/include/opencv2/ts.hpp b/modules/ts/include/opencv2/ts.hpp
+old mode 100644
+new mode 100755
+index 5364143d15..24c66a44ea
+--- a/modules/ts/include/opencv2/ts.hpp
++++ b/modules/ts/include/opencv2/ts.hpp
+@@ -728,7 +728,7 @@ protected:
+     }
+ };
+ 
+-extern uint64 param_seed;
++CV_EXPORTS extern uint64 param_seed;
+ 
+ struct DefaultRngAuto
+ {
+@@ -791,7 +791,7 @@ private:
+ #endif
+ #endif
+ 
+-void parseCustomOptions(int argc, char **argv);
++CV_EXPORTS void parseCustomOptions(int argc, char **argv);
+ 
+ #define CV_TEST_INIT0_NOOP (void)0
+ 
+diff --git a/modules/ts/include/opencv2/ts/ocl_test.hpp b/modules/ts/include/opencv2/ts/ocl_test.hpp
+old mode 100644
+new mode 100755
+index 6126883091..f011b8189d
+--- a/modules/ts/include/opencv2/ts/ocl_test.hpp
++++ b/modules/ts/include/opencv2/ts/ocl_test.hpp
+@@ -82,7 +82,7 @@ inline UMat ToUMat(InputArray src)
+     return dst;
+ }
+ 
+-extern int test_loop_times;
++CV_EXPORTS extern int test_loop_times;
+ 
+ #define MAX_VALUE 357
+ 
+diff --git a/modules/ts/include/opencv2/ts/ts_ext.hpp b/modules/ts/include/opencv2/ts/ts_ext.hpp
+old mode 100644
+new mode 100755
+index f22a9d42eb..af2576d0a3
+--- a/modules/ts/include/opencv2/ts/ts_ext.hpp
++++ b/modules/ts/include/opencv2/ts/ts_ext.hpp
+@@ -9,7 +9,7 @@
+ #define OPENCV_TS_EXT_HPP
+ 
+ namespace cvtest {
+-void checkIppStatus();
++CV_EXPORTS void checkIppStatus();
+ extern bool skipUnstableTests;
+ extern bool runBigDataTests;
+ extern int testThreads;
+diff --git a/modules/videoio/src/cap_ffmpeg_impl.hpp b/modules/videoio/src/cap_ffmpeg_impl.hpp
+old mode 100644
+new mode 100755
+index fdc6b31b19..9c1c9a05a3
+--- a/modules/videoio/src/cap_ffmpeg_impl.hpp
++++ b/modules/videoio/src/cap_ffmpeg_impl.hpp
+@@ -768,6 +768,14 @@ struct ImplMutex::Impl
+ 
+ #endif
+ 
++/* NOTE This is deprecated in ffmpeg and the code should be removed */
++#ifndef AVFMT_RAWPICTURE
++#define AVFMT_RAWPICTURE	0x0020
++#endif /* AVFMT_RAWPICTURE */
++#ifndef CODEC_FLAG_GLOBAL_HEADER
++#define CODEC_FLAG_GLOBAL_HEADER	AV_CODEC_FLAG_GLOBAL_HEADER
++#endif
++
+ void ImplMutex::init()
+ {
+     impl = new Impl();
+-- 
+2.17.1
+

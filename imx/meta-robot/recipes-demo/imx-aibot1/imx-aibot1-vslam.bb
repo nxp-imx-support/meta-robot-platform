@@ -1,0 +1,89 @@
+#
+# Copyright Open Source Robotics Foundation
+
+inherit ros_distro_${ROS_DISTRO}
+inherit ros_superflore_generated
+
+DESCRIPTION = "The i.MX Aibot1 vSLAM ros package"
+AUTHOR = "Xiaodong Zhang <xiaodong.zhang@nxp.com>"
+HOMEPAGE = "https://www.nxp.com"
+SECTION = "devel"
+LICENSE = "BSD"
+LIC_FILES_CHKSUM = "file://package.xml;beginline=7;endline=7;md5=1e7b3bcc2e271699c77c769685058cbe"
+
+ROS_CN = "imx_aibot1"
+ROS_BPN = "imx_aibot1_vslam"
+
+ROS_BUILD_DEPENDS = " \
+    rosconsole \
+    roscpp \
+    sensor-msgs \
+    nav-msgs \
+    cv-bridge \
+    tf2 \
+    tf2-ros \
+    tf2-geometry-msgs \
+    std-srvs \
+    octomap-server \
+    cv-bridge \
+    pcl-ros \
+    pcl-conversions \
+"
+
+ROS_BUILDTOOL_DEPENDS = " \
+    ${@bb.utils.contains('ROS_DISTRO_TYPE', 'ros1', 'catkin-native', '', d)} \
+    ${@bb.utils.contains('ROS_DISTRO_TYPE', 'ros2', 'cmake-native', '', d)} \
+"
+
+ROS_EXPORT_DEPENDS = " \
+    rosconsole \
+    roscpp \
+    sensor-msgs \
+    nav-msgs \
+    cv-bridge \
+    tf2 \
+    tf2-ros \
+    tf2-geometry-msgs \
+    std-srvs \
+    octomap-server \
+    cv-bridge \
+    pcl-ros \
+    pcl-conversions \
+"
+
+ROS_BUILDTOOL_EXPORT_DEPENDS = ""
+
+ROS_EXEC_DEPENDS = " \
+    rosconsole \
+    roscpp \
+    sensor-msgs \
+    nav-msgs \
+    cv-bridge \
+    tf2 \
+    tf2-ros \
+    tf2-geometry-msgs \
+    std-srvs \
+    octomap-server \
+    cv-bridge \
+    pcl-ros \
+    pcl-conversions \
+    realsense2-camera \
+"
+
+# Currently informational only -- see http://www.ros.org/reps/rep-0149.html#dependency-tags.
+ROS_TEST_DEPENDS = ""
+
+DEPENDS = "dbow3 libg2o sophus imx-hc-slam ${ROS_BUILD_DEPENDS} ${ROS_BUILDTOOL_DEPENDS}"
+# Bitbake doesn't support the "export" concept, so build them as if we needed them to build this package (even though we actually
+# don't) so that they're guaranteed to have been staged should this package appear in another's DEPENDS.
+DEPENDS += "${ROS_EXPORT_DEPENDS} ${ROS_BUILDTOOL_EXPORT_DEPENDS}"
+
+RDEPENDS:${PN} += "${ROS_EXEC_DEPENDS}"
+
+SRC_URI = " file://imx-aibot1-vslam.tar.gz"
+
+S = "${WORKDIR}/git" 
+
+ROS_BUILD_TYPE = "${@bb.utils.contains('ROS_DISTRO_TYPE','ros1','catkin','ament_cmake',d)}"
+
+inherit ros_${ROS_BUILD_TYPE} pkgconfig

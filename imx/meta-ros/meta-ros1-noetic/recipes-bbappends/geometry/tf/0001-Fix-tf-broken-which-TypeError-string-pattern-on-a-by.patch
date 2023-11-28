@@ -1,0 +1,27 @@
+From 01a7705d5bbf3055e71523e84a8ab7b6b7d38774 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Thu, 29 Sep 2022 13:48:59 +0800
+Subject: [PATCH] Fix tf broken which TypeError: string pattern on a bytes-like
+ object
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ scripts/view_frames | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/scripts/view_frames b/scripts/view_frames
+index c0df98af..136d7bbc 100755
+--- a/scripts/view_frames
++++ b/scripts/view_frames
+@@ -86,7 +86,7 @@ def generate(dot_graph):
+         v = distutils.version.StrictVersion('2.16')
+         r = re.compile(".*version (\d+\.?\d*)")
+         print(vstr)
+-        m = r.search(vstr)
++        m = r.search(vstr.decode('utf-8'))
+         if not m or not m.group(1):
+           print('Warning: failed to determine your version of dot.  Assuming v2.16')
+         else:
+-- 
+2.35.1
+

@@ -1,0 +1,5330 @@
+From 292d2dd99dc1ac7830ebf79d96cebfc99cf387fd Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Thu, 9 Mar 2023 13:40:14 +0800
+Subject: [PATCH] Add supporting public key cryptography operations and PKHA
+ functionality in CAAM
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ drivers/crypto/caam/caamalg.c     |   90 +
+ drivers/crypto/caam/caampkc.c     | 3705 ++++++++++++++++++++++++++++-
+ drivers/crypto/caam/caampkc.h     |  403 ++++
+ drivers/crypto/caam/desc.h        |  347 ++-
+ drivers/crypto/caam/desc_constr.h |    7 +
+ drivers/crypto/caam/pdb.h         |  262 +-
+ drivers/crypto/caam/pkc_desc.c    |  235 +-
+ drivers/crypto/caam/regs.h        |    2 +
+ 8 files changed, 4960 insertions(+), 91 deletions(-)
+
+diff --git a/drivers/crypto/caam/caamalg.c b/drivers/crypto/caam/caamalg.c
+index 1a4ad26012a3..e6228b56b7d1 100644
+--- a/drivers/crypto/caam/caamalg.c
++++ b/drivers/crypto/caam/caamalg.c
+@@ -2121,6 +2121,96 @@ static struct caam_skcipher_alg driver_algs[] = {
+ 		},
+ 		.caam.class1_alg_type = OP_ALG_ALGSEL_3DES | OP_ALG_AAI_ECB,
+ 	},
++		{
++		.skcipher = {
++			.base = {
++				.cra_name = "cfb(des)",
++				.cra_driver_name = "cfb-des-caam",
++				.cra_blocksize = DES_BLOCK_SIZE,
++			},
++			.setkey = des_skcipher_setkey,
++			.encrypt = skcipher_encrypt,
++			.decrypt = skcipher_decrypt,
++			.min_keysize = DES_KEY_SIZE,
++			.max_keysize = DES_KEY_SIZE,
++		},
++		.caam.class1_alg_type = OP_ALG_ALGSEL_DES | OP_ALG_AAI_CFB,
++	},
++	{
++		.skcipher = {
++			.base = {
++				.cra_name = "ofb(des)",
++				.cra_driver_name = "ofb-des-caam",
++				.cra_blocksize = DES_BLOCK_SIZE,
++			},
++			.setkey = des_skcipher_setkey,
++			.encrypt = skcipher_encrypt,
++			.decrypt = skcipher_decrypt,
++			.min_keysize = DES_KEY_SIZE,
++			.max_keysize = DES_KEY_SIZE,
++		},
++		.caam.class1_alg_type = OP_ALG_ALGSEL_DES | OP_ALG_AAI_OFB,
++	},
++	{
++		.skcipher = {
++			.base = {
++				.cra_name = "cfb(des3_ede)",
++				.cra_driver_name = "cfb-des3-caam",
++				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
++			},
++			.setkey = des3_skcipher_setkey,
++			.encrypt = skcipher_encrypt,
++			.decrypt = skcipher_decrypt,
++			.min_keysize = DES3_EDE_KEY_SIZE,
++			.max_keysize = DES3_EDE_KEY_SIZE,
++		},
++		.caam.class1_alg_type = OP_ALG_ALGSEL_3DES | OP_ALG_AAI_CFB,
++	},
++	{
++		.skcipher = {
++			.base = {
++				.cra_name = "ofb(des3_ede)",
++				.cra_driver_name = "ofb-des3-caam",
++				.cra_blocksize = DES3_EDE_BLOCK_SIZE,
++			},
++			.setkey = des3_skcipher_setkey,
++			.encrypt = skcipher_encrypt,
++			.decrypt = skcipher_decrypt,
++			.min_keysize = DES3_EDE_KEY_SIZE,
++			.max_keysize = DES3_EDE_KEY_SIZE,
++		},
++		.caam.class1_alg_type = OP_ALG_ALGSEL_3DES | OP_ALG_AAI_OFB,
++	},
++	{
++		.skcipher = {
++			.base = {
++				.cra_name = "cfb(aes)",
++				.cra_driver_name = "cfb-aes-caam",
++				.cra_blocksize = AES_BLOCK_SIZE,
++			},
++			.setkey = aes_skcipher_setkey,
++			.encrypt = skcipher_encrypt,
++			.decrypt = skcipher_decrypt,
++			.min_keysize = AES_MIN_KEY_SIZE,
++			.max_keysize = AES_MAX_KEY_SIZE,
++		},
++		.caam.class1_alg_type = OP_ALG_ALGSEL_AES | OP_ALG_AAI_CFB,
++	},
++	{
++		.skcipher = {
++			.base = {
++				.cra_name = "ofb(aes)",
++				.cra_driver_name = "ofb-aes-caam",
++				.cra_blocksize = AES_BLOCK_SIZE,
++			},
++			.setkey = aes_skcipher_setkey,
++			.encrypt = skcipher_encrypt,
++			.decrypt = skcipher_decrypt,
++			.min_keysize = AES_MIN_KEY_SIZE,
++			.max_keysize = AES_MAX_KEY_SIZE,
++		},
++		.caam.class1_alg_type = OP_ALG_ALGSEL_AES | OP_ALG_AAI_OFB,
++	},
+ };
+ 
+ static struct caam_aead_alg driver_aeads[] = {
+diff --git a/drivers/crypto/caam/caampkc.c b/drivers/crypto/caam/caampkc.c
+index 7eed1ef6247b..43f2e9c0214c 100644
+--- a/drivers/crypto/caam/caampkc.c
++++ b/drivers/crypto/caam/caampkc.c
+@@ -29,6 +29,112 @@
+ /* buffer filled with zeros, used for padding */
+ static u8 *zero_buffer;
+ 
++//#define PK_DEBUG
++/* pk per-device context */
++struct caam_pk_ctx {
++	struct device *jrdev;
++    int caam_era;
++};
++
++struct pk_operation_result {
++	struct completion completion;
++	int err;
++};
++
++static struct caam_pk_ctx *pk_crypto_ctx = NULL;
++/* elliptic curves over 256-bit bit prime fields */
++static const char sm2p256_curve_parameters[] = {
++	/* p */
++	0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	/* R^2 mod p */
++	0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 
++	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0xFF, 0xFF, 0xFF, 0xFF,
++	0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03,
++	/* a */
++	0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC,
++	/* b */
++	0x28, 0xE9, 0xFA, 0x9E, 0x9D, 0x9F, 0x5E, 0x34, 0x4D, 0x5A, 0x9E, 0x4B,
++	0xCF, 0x65, 0x09, 0xA7, 0xF3, 0x97, 0x89, 0xF5, 0x15, 0xAB, 0x8F, 0x92,
++	0xDD, 0xBC, 0xBD, 0x41, 0x4D, 0x94, 0x0E, 0x93,
++	/* Gx */
++	0x32, 0xC4, 0xAE, 0x2C, 0x1F, 0x19, 0x81, 0x19, 0x5F, 0x99, 0x04, 0x46,
++	0x6A, 0x39, 0xC9, 0x94, 0x8F, 0xE3, 0x0B, 0xBF, 0xF2, 0x66, 0x0B, 0xE1,
++	0x71, 0x5A, 0x45, 0x89, 0x33, 0x4C, 0x74, 0xC7,
++	/* Gy */
++	0xBC, 0x37, 0x36, 0xA2, 0xF4, 0xF6, 0x77, 0x9C, 0x59, 0xBD, 0xCE, 0xE3,
++	0x6B, 0x69, 0x21, 0x53, 0xD0, 0xA9, 0x87, 0x7C, 0xC6, 0x2A, 0x47, 0x40,
++	0x02, 0xDF, 0x32, 0xE5, 0x21, 0x39, 0xF0, 0xA0,
++	/* order n*/
++	0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0x72, 0x03, 0xDF, 0x6B, 0x21, 0xC6, 0x05, 0x2B,
++	0x53, 0xBB, 0xF4, 0x09, 0x39, 0xD5, 0x41, 0x23
++#if 0
++	,
++	/* R^2 mod n */
++	0x1E, 0xB5, 0xE4, 0x12, 0xA2, 0x2B, 0x3D, 0x3B, 0x62, 0x0F, 0xC8, 0x4C,	
++	0x3A, 0xFF, 0xE0, 0xD4, 0x34, 0x64, 0x50, 0x4A, 0xDE, 0x6F, 0xA2, 0xFA, 	
++	0x90, 0x11, 0x92, 0xAF, 0x7C, 0x11, 0x4F, 0x20
++#endif	
++}; 
++
++static char brainpoolP256r1_curve_parameters[32 * 6] = {
++	/* p */
++	0xA9, 0xFB, 0x57, 0xDB, 0xA1, 0xEE, 0xA9, 0xBC, 0x3E, 0x66, 0x0A, 0x90,
++	0x9D, 0x83, 0x8D, 0x72, 0x6E, 0x3B, 0xF6, 0x23, 0xD5, 0x26, 0x20, 0x28,
++	0x20, 0x13, 0x48, 0x1D, 0x1F, 0x6E, 0x53, 0x77,
++	/* a */
++	0x7D, 0x5A, 0x09, 0x75, 0xFC, 0x2C, 0x30, 0x57, 0xEE, 0xF6, 0x75, 0x30,
++	0x41, 0x7A, 0xFF, 0xE7, 0xFB, 0x80, 0x55, 0xC1, 0x26, 0xDC, 0x5C, 0x6C,
++	0xE9, 0x4A, 0x4B, 0x44, 0xF3, 0x30, 0xB5, 0xD9,
++	/* b */
++	0x26, 0xDC, 0x5C, 0x6C, 0xE9, 0x4A, 0x4B, 0x44, 0xF3, 0x30, 0xB5, 0xD9,
++	0xBB, 0xD7, 0x7C, 0xBF, 0x95, 0x84, 0x16, 0x29, 0x5C, 0xF7, 0xE1, 0xCE,
++	0x6B, 0xCC, 0xDC, 0x18, 0xFF, 0x8C, 0x07, 0xB6,
++	/* Gx */
++	0x8B, 0xD2, 0xAE, 0xB9, 0xCB, 0x7E, 0x57, 0xCB, 0x2C, 0x4B, 0x48, 0x2F,
++	0xFC, 0x81, 0xB7, 0xAF, 0xB9, 0xDE, 0x27, 0xE1, 0xE3, 0xBD, 0x23, 0xC2,
++	0x3A, 0x44, 0x53, 0xBD, 0x9A, 0xCE, 0x32, 0x62,
++	/* Gy */
++	0x54, 0x7E, 0xF8, 0x35, 0xC3, 0xDA, 0xC4, 0xFD, 0x97, 0xF8, 0x46, 0x1A,
++	0x14, 0x61, 0x1D, 0xC9, 0xC2, 0x77, 0x45, 0x13, 0x2D, 0xED, 0x8E, 0x54,
++	0x5C, 0x1D, 0x54, 0xC7, 0x2F, 0x04, 0x69, 0x97,
++	/* order n*/
++	0xA9, 0xFB, 0x57, 0xDB, 0xA1, 0xEE, 0xA9, 0xBC, 0x3E, 0x66, 0x0A, 0x90,
++	0x9D, 0x83, 0x8D, 0x71, 0x8C, 0x39, 0x7A, 0xA3, 0xB5, 0x61, 0xA6, 0xF7,
++	0x90, 0x1E, 0x0E, 0x82, 0x97, 0x48, 0x56, 0xA7
++};
++
++static char nistp256_curve_parameters[32 * 6] = {
++	/* p */
++	0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
++	/* a */
++	0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC,
++	/* b */
++	0x5A, 0xC6, 0x35, 0xD8, 0xAA, 0x3A, 0x93, 0xE7, 0xB3, 0xEB, 0xBD, 0x55,
++	0x76, 0x98, 0x86, 0xBC, 0x65, 0x1D, 0x06, 0xB0, 0xCC, 0x53, 0xB0, 0xF6,
++	0x3B, 0xCE, 0x3C, 0x3E, 0x27, 0xD2, 0x60, 0x4B,
++	/* Gx */
++	0x6B, 0x17, 0xD1, 0xF2, 0xE1, 0x2C, 0x42, 0x47, 0xF8, 0xBC, 0xE6, 0xE5,
++	0x63, 0xA4, 0x40, 0xF2, 0x77, 0x03, 0x7D, 0x81, 0x2D, 0xEB, 0x33, 0xA0,
++	0xF4, 0xA1, 0x39, 0x45, 0xD8, 0x98, 0xC2, 0x96,
++	/* Gy */
++	0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b, 0x8e, 0xe7, 0xeb, 0x4a,
++	0x7c, 0x0f, 0x9e, 0x16, 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce,
++	0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5,
++	/* order n*/
++	0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
++	0xFF, 0xFF, 0xFF, 0xFF, 0xBC, 0xE6, 0xFA, 0xAD, 0xA7, 0x17, 0x9E, 0x84,
++	0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x51
++};
++
+ /*
+  * variable used to avoid double free of resources in case
+  * algorithm registration was unsuccessful
+@@ -1152,52 +1258,3577 @@ static struct caam_akcipher_alg caam_rsa = {
+ 	}
+ };
+ 
+-/* Public Key Cryptography module initialization handler */
+-int caam_pkc_init(struct device *ctrldev)
++//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++void pk_operation_done(struct device *dev, u32 *desc, u32 err, void *context)
+ {
+-	struct caam_drv_private *priv = dev_get_drvdata(ctrldev);
+-	u32 pk_inst, pkha;
+-	int err;
+-	init_done = false;
++	struct pk_operation_result *res = context;
+ 
+-	/* Determine public key hardware accelerator presence. */
+-	if (priv->era < 10) {
+-		pk_inst = (rd_reg32(&priv->jr[0]->perfmon.cha_num_ls) &
+-			   CHA_ID_LS_PK_MASK) >> CHA_ID_LS_PK_SHIFT;
+-	} else {
+-		pkha = rd_reg32(&priv->jr[0]->vreg.pkha);
+-		pk_inst = pkha & CHA_VER_NUM_MASK;
++#ifdef DEBUG
++	dev_err(dev, "%s %d: err 0x%x\n", __func__, __LINE__, err);
++	if (err)
++		caam_jr_strstatus(dev, err);
++#endif
+ 
+-		/*
+-		 * Newer CAAMs support partially disabled functionality. If this is the
+-		 * case, the number is non-zero, but this bit is set to indicate that
+-		 * no encryption or decryption is supported. Only signing and verifying
+-		 * is supported.
+-		 */
+-		if (pkha & CHA_VER_MISC_PKHA_NO_CRYPT)
+-			pk_inst = 0;
++	res->err = err;
++
++	complete(&res->completion);
++}
++
++int pk_dh_keygen_init(pk_dh_keygen_t *dh_keygen)
++{
++	int ret = 0;
++
++	if (0 == dh_keygen->l_len || 0 == dh_keygen->n_len)
++		return -ENOMEM;
++	dh_keygen->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (!dh_keygen->desc)
++		goto desc_alloc_fail;
++
++	dh_keygen->addr_q = kmalloc((dh_keygen->l_len * 3 + dh_keygen->n_len * 2), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dh_keygen->addr_q))
++		goto q_alloc_fail;
++	
++	memset(dh_keygen->addr_q, 0, (dh_keygen->l_len * 3 + dh_keygen->n_len * 2));
++	dh_keygen->addr_r = dh_keygen->addr_q + dh_keygen->l_len;
++	dh_keygen->addr_g = dh_keygen->addr_r + dh_keygen->n_len;
++	dh_keygen->addr_s = dh_keygen->addr_g + dh_keygen->l_len;
++	dh_keygen->addr_w = dh_keygen->addr_s + dh_keygen->n_len;
++	
++	return ret;
++
++q_alloc_fail:
++	kfree(dh_keygen->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_dh_keygen_init);
++
++int pk_dh_keygen_deinit(pk_dh_keygen_t *dh_keygen)
++{
++	if (dh_keygen->addr_q)
++		kfree_sensitive(dh_keygen->addr_q);
++	if (dh_keygen->desc)
++		kfree(dh_keygen->desc);
++
++	return 0;
++}
++EXPORT_SYMBOL(pk_dh_keygen_deinit);
++
++int pk_dh_keygen(pk_dh_keygen_t *dh_keygen)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = dh_keygen->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct dh_keygen_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dh_keygen->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, dh_keygen->addr_q, (dh_keygen->l_len * 2 + dh_keygen->n_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, dh_keygen->phy_addr_q)) {
++		dev_err(jrdev, "pk_dh_keygen(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
+ 	}
++	dh_keygen->phy_addr_r = dh_keygen->phy_addr_q + dh_keygen->l_len;
++	dh_keygen->phy_addr_g = dh_keygen->phy_addr_r + dh_keygen->n_len;
++
++	dh_keygen->phy_addr_s = (caam_dma_addr_t)dma_map_single(jrdev, dh_keygen->addr_s, (dh_keygen->l_len + dh_keygen->n_len), DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, dh_keygen->phy_addr_s)) {
++		dev_err(jrdev, "pk_dh_keygen(): can't map phy_addr_s\n");
++		ret = -ENOMEM;
++		goto unmap_s;
++	}	
++	dh_keygen->phy_addr_w = dh_keygen->phy_addr_s + dh_keygen->n_len;
++
++	pdb.sgf_ln = ((dh_keygen->l_len & 0x3ff) << GEN_PDB_L_SHIFT) | ((dh_keygen->n_len & GEN_PDB_N_MASK));
++	pdb.q_dma = dh_keygen->phy_addr_q;
++	pdb.r_dma = dh_keygen->phy_addr_r;
++	pdb.g_dma = dh_keygen->phy_addr_g;
++	pdb.s_dma = dh_keygen->phy_addr_s;
++	pdb.w_dma = dh_keygen->phy_addr_w;
++
++	init_dh_keygen_desc(desc, &pdb);
++
++#ifdef PK_DEBUG
++	printk("\n DH Key Gen Job descriptor: ");
++	for (i = 0; i < sizeof(struct dh_keygen_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, dh_keygen->phy_addr_s, (dh_keygen->l_len + dh_keygen->n_len), DMA_FROM_DEVICE);
++	
++unmap_s:
++	dma_unmap_single(jrdev, dh_keygen->phy_addr_q, (dh_keygen->l_len * 2 + dh_keygen->n_len), DMA_TO_DEVICE); 
++	
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_dh_keygen);
+ 
+-	/* Do not register algorithms if PKHA is not present. */
+-	if (!pk_inst)
+-		return 0;
++int pk_ecdh_keygen_init(pk_ecdh_keygen_t *ecdh_keygen)
++{
++	int ret = 0;
+ 
+-	/* allocate zero buffer, used for padding input */
+-	zero_buffer = kzalloc(CAAM_RSA_MAX_INPUT_SIZE - 1, GFP_DMA |
+-			      GFP_KERNEL);
+-	if (!zero_buffer)
++	if (0 == ecdh_keygen->l_len || 0 == ecdh_keygen->n_len)
++		return -ENOMEM;
++	ecdh_keygen->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdh_keygen->desc))
++		goto desc_alloc_fail;
++	
++    ecdh_keygen->addr_q = kmalloc((ecdh_keygen->l_len * 7 + ecdh_keygen->n_len * 2), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdh_keygen->addr_q))
++		goto q_alloc_fail;
++
++	memset(ecdh_keygen->addr_q, 0, (ecdh_keygen->l_len * 7 + ecdh_keygen->n_len * 2));
++	ecdh_keygen->addr_r = ecdh_keygen->addr_q + ecdh_keygen->l_len;
++	ecdh_keygen->addr_g = ecdh_keygen->addr_r + ecdh_keygen->n_len;
++	ecdh_keygen->addr_ab = ecdh_keygen->addr_g + ecdh_keygen->l_len * 2;
++	ecdh_keygen->addr_s = ecdh_keygen->addr_ab + ecdh_keygen->l_len * 2;
++	ecdh_keygen->addr_w = ecdh_keygen->addr_s + ecdh_keygen->n_len;
++	
++	
++	return ret;
++	
++q_alloc_fail:
++	kfree(ecdh_keygen->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_ecdh_keygen_init);
++
++int pk_ecdh_keygen_deinit(pk_ecdh_keygen_t *ecdh_keygen)
++{
++	if (ecdh_keygen->addr_q)
++		kfree_sensitive(ecdh_keygen->addr_q);
++	if (ecdh_keygen->desc)
++		kfree(ecdh_keygen->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_ecdh_keygen_deinit);
++
++int pk_ecdh_keygen(pk_ecdh_keygen_t *ecdh_keygen)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = ecdh_keygen->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct ecdh_keygen_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	ecdh_keygen->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, ecdh_keygen->addr_q, (ecdh_keygen->l_len * 5 + ecdh_keygen->n_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, ecdh_keygen->phy_addr_q)) {
++		dev_err(jrdev, "pk_ecdh_keygen(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}
++	ecdh_keygen->phy_addr_r = ecdh_keygen->phy_addr_q + ecdh_keygen->l_len;
++	ecdh_keygen->phy_addr_g = ecdh_keygen->phy_addr_r + ecdh_keygen->n_len;
++	ecdh_keygen->phy_addr_ab = ecdh_keygen->phy_addr_g + ecdh_keygen->l_len * 2;
++
++	ecdh_keygen->phy_addr_s = (caam_dma_addr_t)dma_map_single(jrdev, ecdh_keygen->addr_s, (ecdh_keygen->l_len * 2 + ecdh_keygen->n_len), DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, ecdh_keygen->phy_addr_s)) {
++		dev_err(jrdev, "pk_ecdh_keygen(): can't map phy_addr_s\n");
++		ret = -ENOMEM;
++		goto unmap_s;
++	}	
++	ecdh_keygen->phy_addr_w = ecdh_keygen->phy_addr_s + ecdh_keygen->n_len;
++
++	pdb.sgf_ln = ((ecdh_keygen->l_len & 0x3ff) << GEN_PDB_L_SHIFT) | ((ecdh_keygen->n_len & GEN_PDB_N_MASK));
++	pdb.q_dma = ecdh_keygen->phy_addr_q;
++	pdb.r_dma = ecdh_keygen->phy_addr_r;
++	pdb.g_dma = ecdh_keygen->phy_addr_g;
++	pdb.s_dma = ecdh_keygen->phy_addr_s;
++	pdb.w_dma = ecdh_keygen->phy_addr_w;
++	pdb.ab_dma = ecdh_keygen->phy_addr_ab;
++
++	init_ecdh_keygen_desc(desc, &pdb, ecdh_keygen->arith_type);
++
++#ifdef PK_DEBUG
++	printk("\n ECDH Key Gen Job descriptor: ");
++	for (i = 0; i < sizeof(struct ecdh_keygen_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, ecdh_keygen->phy_addr_s, (ecdh_keygen->l_len * 2 + ecdh_keygen->n_len), DMA_FROM_DEVICE);
++	
++unmap_s:
++	dma_unmap_single(jrdev, ecdh_keygen->phy_addr_q, (ecdh_keygen->l_len * 5 + ecdh_keygen->n_len), DMA_TO_DEVICE); 
++	
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_ecdh_keygen);
++
++int pk_dh_init(pk_dh_t *dh)
++{
++	int ret = 0;
++
++	if (0 == dh->l_len || 0 == dh->n_len)
+ 		return -ENOMEM;
++	dh->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dh->desc))
++		goto desc_alloc_fail;
++
++	dh->addr_q = kmalloc((dh->l_len * 3 + dh->n_len), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dh->addr_q))
++		goto q_alloc_fail;
++
++	memset(dh->addr_q, 0, (dh->l_len * 3 + dh->n_len));
++	dh->addr_s = dh->addr_q + dh->l_len;
++	dh->addr_w = dh->addr_s + dh->n_len;	
++	dh->addr_z = dh->addr_w + dh->l_len;
++	
++	return ret;
+ 
+-	err = crypto_register_akcipher(&caam_rsa.akcipher);
++q_alloc_fail:
++	kfree(dh->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_dh_init);
+ 
+-	if (err) {
+-		kfree(zero_buffer);
+-		dev_warn(ctrldev, "%s alg registration failed\n",
+-			 caam_rsa.akcipher.base.cra_driver_name);
+-	} else {
+-		init_done = true;
+-		caam_rsa.registered = true;
+-		dev_info(ctrldev, "caam pkc algorithms registered in /proc/crypto\n");
++int pk_dh_deinit(pk_dh_t *dh)
++{
++	if (dh->addr_q)
++		kfree_sensitive(dh->addr_q);
++	if (dh->desc)
++		kfree(dh->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_dh_deinit);
++
++int pk_dh(pk_dh_t *dh)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = dh->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct dh_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dh->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, dh->addr_q, (dh->l_len * 2 + dh->n_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, dh->phy_addr_q)) {
++		dev_err(jrdev, "pk_dh(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}	
++	dh->phy_addr_s = dh->phy_addr_q + dh->l_len;
++	dh->phy_addr_w = dh->phy_addr_s + dh->n_len;
++
++	dh->phy_addr_z = (caam_dma_addr_t)dma_map_single(jrdev, dh->addr_z, dh->l_len, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, dh->phy_addr_z)) {
++		dev_err(jrdev, "pk_dh(): can't map phy_addr_z\n");
++		ret = -ENOMEM;
++		goto unmap_z;
++	}
++
++
++	pdb.sgf_ln = ((dh->l_len & 0x3ff) << GEN_PDB_L_SHIFT) | ((dh->n_len & GEN_PDB_N_MASK));
++	pdb.q_dma = dh->phy_addr_q;
++	pdb.r_dma = 0;
++	pdb.z_dma = dh->phy_addr_z;
++	pdb.s_dma = dh->phy_addr_s;
++	pdb.w_dma = dh->phy_addr_w;
++	
++	init_dh_desc(desc, &pdb);
++	
++#ifdef PK_DEBUG
++	printk("\n DH Job descriptor: ");
++	for (i = 0; i < sizeof(struct dh_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, dh->phy_addr_z, dh->l_len, DMA_FROM_DEVICE);
++	
++unmap_z:
++	dma_unmap_single(jrdev, dh->phy_addr_q, (dh->l_len * 2 + dh->n_len), DMA_TO_DEVICE); 
++	
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_dh);
++
++int pk_ecdh_init(pk_ecdh_t *ecdh)
++{
++	int ret = 0;
++
++	if (0 == ecdh->l_len || 0 == ecdh->n_len)
++		return -ENOMEM;
++	ecdh->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdh->desc))
++		goto desc_alloc_fail;
++
++    ecdh->addr_q = kmalloc((ecdh->l_len * 6 + ecdh->n_len), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdh->addr_q))
++		goto q_alloc_fail;
++	
++	memset(ecdh->addr_q, 0, (ecdh->l_len * 6 + ecdh->n_len));
++	ecdh->addr_s = ecdh->addr_q + ecdh->l_len;
++	ecdh->addr_w = ecdh->addr_s + ecdh->n_len;
++	ecdh->addr_ab = ecdh->addr_w + ecdh->l_len * 2;	
++	ecdh->addr_z = ecdh->addr_ab + ecdh->l_len * 2;
++	
++	return ret;
++
++q_alloc_fail:
++	kfree(ecdh->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_ecdh_init);
++
++int pk_ecdh_deinit(pk_ecdh_t *ecdh)
++{
++	if (ecdh->addr_q)
++		kfree_sensitive(ecdh->addr_q);
++	if (ecdh->desc)
++		kfree(ecdh->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_ecdh_deinit);
++
++int pk_ecdh(pk_ecdh_t *ecdh)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = ecdh->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};	
++	struct ecdh_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	ecdh->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, ecdh->addr_q, (ecdh->l_len * 5 + ecdh->n_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, ecdh->phy_addr_q)) {
++		dev_err(jrdev, "pk_ecdh(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}		
++	ecdh->phy_addr_s  = ecdh->phy_addr_q + ecdh->l_len;
++	ecdh->phy_addr_w  = ecdh->phy_addr_s + ecdh->n_len;
++	ecdh->phy_addr_ab  = ecdh->phy_addr_w + ecdh->l_len * 2;
++
++	ecdh->phy_addr_z = (caam_dma_addr_t)dma_map_single(jrdev, ecdh->addr_z, ecdh->l_len, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, ecdh->phy_addr_z)) {
++		dev_err(jrdev, "pk_ecdh(): can't map phy_addr_z\n");
++		ret = -ENOMEM;
++		goto unmap_z;
++	}
++
++
++	pdb.sgf_ln = ((ecdh->l_len & 0x3FF) << GEN_PDB_L_SHIFT) | ((ecdh->n_len & GEN_PDB_N_MASK));
++	pdb.q_dma = ecdh->phy_addr_q;
++	pdb.r_dma = 0;
++	pdb.z_dma = ecdh->phy_addr_z;
++	pdb.s_dma = ecdh->phy_addr_s;
++	pdb.w_dma = ecdh->phy_addr_w;
++	pdb.ab_dma = ecdh->phy_addr_ab;
++	
++	init_ecdh_desc(desc, &pdb, ecdh->arith_type);
++	
++#ifdef PK_DEBUG
++	printk("\n ECDH Job descriptor: ");
++	for (i = 0; i < sizeof(struct ecdh_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, ecdh->phy_addr_z, ecdh->l_len, DMA_FROM_DEVICE);
++	
++unmap_z:
++	dma_unmap_single(jrdev, ecdh->phy_addr_q, (ecdh->l_len * 5 + ecdh->n_len), DMA_TO_DEVICE); 
++	
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_ecdh);
++
++int pk_rsa_keygen_init(pk_rsa_keygen_t *rsa_keygen)
++{
++	int ret = 0;
++
++	if (0 == rsa_keygen->p_len || 0 == rsa_keygen->e_len || 0 == rsa_keygen->n_len)
++		return -ENOMEM;
++	rsa_keygen->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_keygen->desc))
++		goto desc_alloc_fail;
++	
++    rsa_keygen->addr_p = kmalloc((rsa_keygen->p_len * 5 + rsa_keygen->n_len * 2 + rsa_keygen->e_len + sizeof(uint32_t)), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_keygen->addr_p))
++		goto p_alloc_fail;
++
++	memset(rsa_keygen->addr_p, 0, (rsa_keygen->p_len * 5 + rsa_keygen->n_len * 2 + rsa_keygen->e_len + sizeof(uint32_t)));
++	rsa_keygen->addr_q = rsa_keygen->addr_p + rsa_keygen->p_len;
++	rsa_keygen->addr_e = rsa_keygen->addr_q + rsa_keygen->p_len;
++	rsa_keygen->addr_n = rsa_keygen->addr_e + rsa_keygen->e_len;
++	rsa_keygen->addr_d = rsa_keygen->addr_n + rsa_keygen->n_len;
++	rsa_keygen->addr__d = rsa_keygen->addr_d + rsa_keygen->n_len;
++	rsa_keygen->addr_d1 = rsa_keygen->addr__d + sizeof(uint32_t);
++	rsa_keygen->addr_d2 = rsa_keygen->addr_d1 + rsa_keygen->p_len;
++	rsa_keygen->addr_c = rsa_keygen->addr_d2 + rsa_keygen->p_len;
++
++	return ret;
++	
++p_alloc_fail:
++	kfree(rsa_keygen->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_rsa_keygen_init);
++
++int pk_rsa_keygen_deinit(pk_rsa_keygen_t *rsa_keygen)
++{
++	if (rsa_keygen->addr_p)
++		kfree_sensitive(rsa_keygen->addr_p);
++	if (rsa_keygen->desc)
++		kfree(rsa_keygen->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_rsa_keygen_deinit);
++
++int pk_rsa_keygen(pk_rsa_keygen_t *rsa_keygen)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = rsa_keygen->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct rsa_fkg_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	rsa_keygen->phy_addr_p = (caam_dma_addr_t)dma_map_single(jrdev, rsa_keygen->addr_p, (rsa_keygen->p_len * 2  + rsa_keygen->e_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_keygen->phy_addr_p)) {
++		dev_err(jrdev, "pk_rsa_keygen(): can't map phy_addr_p\n");
++		ret = -ENOMEM;
++		goto unmap_p;
++	}
++	rsa_keygen->phy_addr_q = rsa_keygen->phy_addr_p + rsa_keygen->p_len;
++	rsa_keygen->phy_addr_e = rsa_keygen->phy_addr_q + rsa_keygen->p_len;
++
++	rsa_keygen->phy_addr_n = (caam_dma_addr_t)dma_map_single(jrdev, rsa_keygen->addr_n, (rsa_keygen->p_len * 3 + rsa_keygen->n_len * 2 + sizeof(uint32_t)), DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_keygen->phy_addr_n)) {
++		dev_err(jrdev, "pk_rsa_keygen(): can't map phy_addr_n\n");
++		ret = -ENOMEM;
++		goto unmap_n;
++	} 
++	rsa_keygen->phy_addr_d = rsa_keygen->phy_addr_n + rsa_keygen->n_len;
++	rsa_keygen->phy_addr__d = rsa_keygen->phy_addr_d + rsa_keygen->n_len;
++	rsa_keygen->phy_addr_d1 = rsa_keygen->phy_addr__d + sizeof(uint32_t);
++	rsa_keygen->phy_addr_d2 = rsa_keygen->phy_addr_d1 + rsa_keygen->p_len;
++	rsa_keygen->phy_addr_c = rsa_keygen->phy_addr_d2 + rsa_keygen->p_len;
++
++
++	pdb.sgf = 0;
++	pdb.p_dma = rsa_keygen->phy_addr_p;
++	pdb.q_dma = rsa_keygen->phy_addr_q;	
++	pdb.e_dma = rsa_keygen->phy_addr_e;
++	pdb.n_dma = rsa_keygen->phy_addr_n;
++	pdb.d_dma = rsa_keygen->phy_addr_d;
++	pdb._d_dma = rsa_keygen->phy_addr__d;
++	pdb.d1_dma = rsa_keygen->phy_addr_d1;
++	pdb.d2_dma = rsa_keygen->phy_addr_d2;
++	pdb.c_dma = rsa_keygen->phy_addr_c;
++	pdb.ne_len = ((rsa_keygen->n_len & 0x3FF) << RSA_GEN_PDB_N_SHIFT) | (rsa_keygen->e_len & RSA_GEN_PDB_E_MASK);
++	pdb.p_len = rsa_keygen->p_len & RSA_GEN_PDB_P_MASK;
++
++	init_rsa_keygen_desc(desc, &pdb);
++
++#ifdef PK_DEBUG
++	printk("\n RSA Key Gen Job descriptor: ");
++	for (i = 0; i < sizeof(struct rsa_fkg_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, rsa_keygen->phy_addr_n, (rsa_keygen->p_len * 3 + rsa_keygen->n_len * 2 + sizeof(uint32_t)), DMA_FROM_DEVICE);
++	
++unmap_n:
++	dma_unmap_single(jrdev, rsa_keygen->phy_addr_p, (rsa_keygen->p_len * 2  + rsa_keygen->e_len), DMA_TO_DEVICE); 
++	
++unmap_p:
++	return ret;
++}
++EXPORT_SYMBOL(pk_rsa_keygen);
++
++int pk_rsa_encrypt_init(pk_rsa_enc_t *rsa_enc)
++{
++	if (0 == rsa_enc->g_len || 0 == rsa_enc->f_len || 0 == rsa_enc->e_len || 0 == rsa_enc->n_len)
++		return -ENOMEM;
++	rsa_enc->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_enc->desc))
++		goto desc_alloc_fail;
++    
++	rsa_enc->addr_n = kmalloc((rsa_enc->n_len + rsa_enc->e_len + rsa_enc->f_len + rsa_enc->g_len), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_enc->addr_n))
++		goto n_alloc_fail;
++    
++	memset(rsa_enc->addr_n, 0, rsa_enc->n_len + rsa_enc->e_len + rsa_enc->f_len + rsa_enc->g_len);
++	rsa_enc->addr_e = rsa_enc->addr_n + rsa_enc->n_len;
++	rsa_enc->addr_f = rsa_enc->addr_e + rsa_enc->e_len;
++	rsa_enc->addr_g = rsa_enc->addr_f + rsa_enc->f_len;
++
++	return 0;
++
++n_alloc_fail:
++	kfree(rsa_enc->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_rsa_encrypt_init);
++
++int pk_rsa_encrypt_deinit(pk_rsa_enc_t *rsa_enc)
++{
++	if (rsa_enc->addr_n)
++		kfree_sensitive(rsa_enc->addr_n);
++	if (rsa_enc->desc)
++		kfree(rsa_enc->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_rsa_encrypt_deinit);
++
++int pk_rsa_encrypt(pk_rsa_enc_t *rsa_enc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = rsa_enc->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct rsa_pub_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++	rsa_enc->phy_addr_n = (caam_dma_addr_t)dma_map_single(jrdev, rsa_enc->addr_n, (rsa_enc->n_len + rsa_enc->e_len + rsa_enc->f_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_enc->phy_addr_n)) {
++		dev_err(jrdev, "pk_rsa_encrypt(): can't map phy_addr_n\n");
++		ret = -ENOMEM;
++		goto unmap_n;
++	}
++	rsa_enc->phy_addr_e = rsa_enc->phy_addr_n + rsa_enc->n_len;
++	rsa_enc->phy_addr_f = rsa_enc->phy_addr_e + rsa_enc->e_len;
++    
++	rsa_enc->phy_addr_g = (caam_dma_addr_t)dma_map_single(jrdev, rsa_enc->addr_g, rsa_enc->g_len, DMA_FROM_DEVICE);
++    if (dma_mapping_error(jrdev, rsa_enc->phy_addr_g)) {
++		dev_err(jrdev, "pk_rsa_encrypt(): can't map phy_addr_g\n");
++		ret = -ENOMEM;
++		goto unmap_g;
++	}
++	pdb.n_dma = rsa_enc->phy_addr_n;
++	pdb.e_dma = rsa_enc->phy_addr_e;
++	pdb.f_dma = rsa_enc->phy_addr_f;
++	pdb.g_dma = rsa_enc->phy_addr_g;
++	pdb.sgf = ((rsa_enc->e_len & 0xfff) << RSA_PDB_E_SHIFT) | (rsa_enc->n_len & 0xfff);
++	pdb.f_len = rsa_enc->f_len;
++
++	init_rsa_pub_desc(desc, &pdb);
++	
++#ifdef PK_DEBUG
++	printk("\n RSA Encrypt Job descriptor: ");
++	for (i = 0; i < sizeof(struct rsa_pub_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, rsa_enc->phy_addr_g, rsa_enc->g_len, DMA_FROM_DEVICE);
++    
++unmap_g:
++	dma_unmap_single(jrdev, rsa_enc->phy_addr_n, (rsa_enc->n_len + rsa_enc->e_len + rsa_enc->f_len), DMA_TO_DEVICE);    
++    
++unmap_n:    
++	return ret;
++}
++EXPORT_SYMBOL(pk_rsa_encrypt);
++
++int pk_rsa_decrypt_f1_init(pk_rsa_dec_f1_t *rsa_dec)
++{
++	if (0 == rsa_dec->g_len || 0 == rsa_dec->f_len || 0 == rsa_dec->d_len || 0 == rsa_dec->n_len)
++		return -ENOMEM;
++    
++	rsa_dec->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_dec->desc))
++		goto desc_alloc_fail;
++
++	rsa_dec->addr_n = kmalloc((rsa_dec->n_len + rsa_dec->d_len + rsa_dec->f_len + rsa_dec->g_len), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_dec->addr_n))
++		goto n_alloc_fail;
++    
++	memset(rsa_dec->addr_n, 0, (rsa_dec->n_len + rsa_dec->d_len + rsa_dec->f_len + rsa_dec->g_len));
++	rsa_dec->addr_d = rsa_dec->addr_n + rsa_dec->n_len;
++	rsa_dec->addr_g = rsa_dec->addr_d + rsa_dec->d_len;
++	rsa_dec->addr_f = rsa_dec->addr_g + rsa_dec->g_len;
++	
++	return 0;
++
++n_alloc_fail:
++	kfree(rsa_dec->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f1_init);
++
++int pk_rsa_decrypt_f1_deinit(pk_rsa_dec_f1_t *rsa_dec)
++{
++	if (rsa_dec->addr_n)
++		kfree_sensitive(rsa_dec->addr_n);
++	if (rsa_dec->desc)
++		kfree(rsa_dec->desc);
++
++	return 0;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f1_deinit);
++
++int pk_rsa_decrypt_f1(pk_rsa_dec_f1_t *rsa_dec)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = rsa_dec->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct rsa_priv_f1_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++	rsa_dec->phy_addr_n = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_n, (rsa_dec->n_len + rsa_dec->d_len + rsa_dec->g_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_n)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f1(): can't map phy_addr_n\n");
++		ret = -ENOMEM;
++		goto unmap_n;
++	}
++	
++	rsa_dec->phy_addr_d = rsa_dec->phy_addr_n + rsa_dec->n_len;
++	rsa_dec->phy_addr_g = rsa_dec->phy_addr_d + rsa_dec->d_len;
++
++	rsa_dec->phy_addr_f = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_f, rsa_dec->f_len, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_f)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f1(): can't map phy_addr_f\n");
++		ret = -ENOMEM;
++		goto unmap_f;
++	}
++
++	pdb.n_dma = rsa_dec->phy_addr_n;
++	pdb.d_dma = rsa_dec->phy_addr_d;
++	pdb.f_dma = rsa_dec->phy_addr_f;
++	pdb.g_dma = rsa_dec->phy_addr_g;
++	pdb.sgf = ((rsa_dec->d_len & 0xfff) << RSA_PDB_D_SHIFT) | (rsa_dec->n_len & 0xfff);
++
++	init_rsa_priv_f1_desc(desc, &pdb);
++
++
++#ifdef PK_DEBUG
++	printk("\n RSA Decrypt F1 Job descriptor: ");
++	for (i = 0; i < sizeof(struct rsa_priv_f1_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_f, rsa_dec->f_len, DMA_FROM_DEVICE);    
++
++unmap_f:
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_n, (rsa_dec->n_len + rsa_dec->d_len + rsa_dec->g_len), DMA_TO_DEVICE);
++    
++unmap_n:
++	return ret;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f1);
++
++int pk_rsa_decrypt_f2_init(pk_rsa_dec_f2_t *rsa_dec)
++{
++	if (0 == rsa_dec->g_len || 0 == rsa_dec->f_len || 0 == rsa_dec->d_len || 0 == rsa_dec->p_len || 0 == rsa_dec->q_len)
++		return -ENOMEM;
++	rsa_dec->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_dec->desc))
++		goto desc_alloc_fail;
++
++	rsa_dec->addr_p = kmalloc((rsa_dec->p_len * 2 + rsa_dec->q_len * 2 + rsa_dec->d_len + rsa_dec->f_len + rsa_dec->g_len), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_dec->addr_p))
++		goto p_alloc_fail;
++
++	memset(rsa_dec->addr_p, 0, (rsa_dec->p_len * 2 + rsa_dec->q_len * 2 + rsa_dec->d_len + rsa_dec->f_len + rsa_dec->g_len));
++	rsa_dec->addr_q = rsa_dec->addr_p + rsa_dec->p_len;
++	rsa_dec->addr_d = rsa_dec->addr_q + rsa_dec->q_len;
++	rsa_dec->addr_g = rsa_dec->addr_d + rsa_dec->d_len;
++	rsa_dec->addr_f = rsa_dec->addr_g + rsa_dec->g_len;
++	rsa_dec->addr_tmp1 = rsa_dec->addr_f + rsa_dec->f_len;
++	rsa_dec->addr_tmp2 = rsa_dec->addr_tmp1 + rsa_dec->p_len;
++
++	return 0;
++
++p_alloc_fail:
++	kfree(rsa_dec->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f2_init);
++
++int pk_rsa_decrypt_f2_deinit(pk_rsa_dec_f2_t *rsa_dec)
++{
++	if (rsa_dec->addr_p)
++		kfree_sensitive(rsa_dec->addr_p);
++	if (rsa_dec->desc)
++		kfree(rsa_dec->desc);
++
++	return 0;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f2_deinit);
++
++int pk_rsa_decrypt_f2(pk_rsa_dec_f2_t *rsa_dec)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = rsa_dec->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct rsa_priv_f2_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	rsa_dec->phy_addr_p = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_p, (rsa_dec->p_len + rsa_dec->q_len + rsa_dec->d_len + rsa_dec->g_len), DMA_TO_DEVICE);
++    if (dma_mapping_error(jrdev, rsa_dec->phy_addr_p)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f2(): can't map phy_addr_p\n");
++		ret = -ENOMEM;
++		goto unmap_p;
++	}
++
++	rsa_dec->phy_addr_q = rsa_dec->phy_addr_p + rsa_dec->p_len;
++	rsa_dec->phy_addr_d = rsa_dec->phy_addr_q + rsa_dec->q_len;
++	rsa_dec->phy_addr_g = rsa_dec->phy_addr_d + rsa_dec->d_len;
++
++	rsa_dec->phy_addr_tmp1 = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_tmp1, (rsa_dec->p_len + rsa_dec->q_len), DMA_BIDIRECTIONAL);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_tmp1)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f2(): can't map phy_addr_tmp1\n");
++		ret = -ENOMEM;
++		goto unmap_tmp1;
++	}
++	rsa_dec->phy_addr_tmp2 = rsa_dec->phy_addr_tmp1 + rsa_dec->p_len;
++
++	rsa_dec->phy_addr_f = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_f, rsa_dec->f_len, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_f)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f2(): can't map phy_addr_f\n");
++		ret = -ENOMEM;
++		goto unmap_f;
++	} 
++    
++	pdb.d_dma = rsa_dec->phy_addr_d;
++	pdb.p_dma = rsa_dec->phy_addr_p;
++	pdb.q_dma = rsa_dec->phy_addr_q;
++	pdb.tmp1_dma = rsa_dec->phy_addr_tmp1;
++	pdb.tmp2_dma = rsa_dec->phy_addr_tmp2;
++	pdb.f_dma = rsa_dec->phy_addr_f;
++	pdb.g_dma = rsa_dec->phy_addr_g;
++	pdb.sgf = ((rsa_dec->d_len & 0xfff) << RSA_PDB_D_SHIFT) | (rsa_dec->n_len & 0xfff);
++	pdb.p_q_len = ((rsa_dec->q_len & 0xfff) << RSA_PDB_D_SHIFT) | (rsa_dec->p_len & 0xfff);
++
++	init_rsa_priv_f2_desc(desc, &pdb);
++
++#ifdef PK_DEBUG
++	printk("\n RSA Decrypt F2 Job descriptor: ");
++	for (i = 0; i < sizeof(struct rsa_priv_f2_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_f, rsa_dec->f_len, DMA_FROM_DEVICE);
++
++unmap_tmp1:
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_tmp1, (rsa_dec->p_len + rsa_dec->q_len), DMA_BIDIRECTIONAL);    
++
++unmap_f:
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_p, (rsa_dec->p_len + rsa_dec->q_len + rsa_dec->d_len + rsa_dec->g_len), DMA_TO_DEVICE);
++    
++unmap_p:
++	return ret;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f2);
++
++int pk_rsa_decrypt_f3_init(pk_rsa_dec_f3_t *rsa_dec)
++{
++	if (0 == rsa_dec->g_len || 0 == rsa_dec->f_len || 0 == rsa_dec->p_len || 0 == rsa_dec->q_len)
++		return -ENOMEM;
++	rsa_dec->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_dec->desc))
++		goto desc_alloc_fail;
++
++	rsa_dec->addr_p = kmalloc((rsa_dec->p_len * 4 + rsa_dec->q_len * 3 + rsa_dec->f_len + rsa_dec->g_len), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!rsa_dec->addr_p))
++		goto p_alloc_fail;
++
++	memset(rsa_dec->addr_p, 0, (rsa_dec->p_len * 4 + rsa_dec->q_len * 3 + rsa_dec->f_len + rsa_dec->g_len));
++	rsa_dec->addr_q = rsa_dec->addr_p + rsa_dec->p_len;
++	rsa_dec->addr_dp = rsa_dec->addr_q + rsa_dec->q_len;
++	rsa_dec->addr_dq = rsa_dec->addr_dp + rsa_dec->p_len;
++	rsa_dec->addr_c = rsa_dec->addr_dq + rsa_dec->q_len;
++	rsa_dec->addr_g = rsa_dec->addr_c + rsa_dec->p_len;
++	rsa_dec->addr_f = rsa_dec->addr_g + rsa_dec->g_len;
++	rsa_dec->addr_tmp1 = rsa_dec->addr_f + rsa_dec->f_len;
++	rsa_dec->addr_tmp2 = rsa_dec->addr_tmp1 + rsa_dec->p_len;
++
++	return 0;
++
++p_alloc_fail:
++	kfree(rsa_dec->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f3_init);
++
++int pk_rsa_decrypt_f3_deinit(pk_rsa_dec_f3_t *rsa_dec)
++{
++	if (rsa_dec->addr_p)
++		kfree_sensitive(rsa_dec->addr_p);
++	if (rsa_dec->desc)
++		kfree(rsa_dec->desc);
++
++	return 0;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f3_deinit);
++
++int pk_rsa_decrypt_f3(pk_rsa_dec_f3_t *rsa_dec)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = rsa_dec->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct rsa_priv_f3_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++	rsa_dec->phy_addr_p = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_p, (rsa_dec->p_len * 3  + rsa_dec->q_len * 2 + rsa_dec->g_len), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_p)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f3(): can't map phy_addr_p\n");
++		ret = -ENOMEM;
++		goto unmap_p;
++	}
++
++	rsa_dec->phy_addr_q = rsa_dec->phy_addr_p + rsa_dec->p_len;
++	rsa_dec->phy_addr_dp = rsa_dec->phy_addr_q + rsa_dec->q_len;
++	rsa_dec->phy_addr_dq = rsa_dec->phy_addr_dp + rsa_dec->p_len;
++	rsa_dec->phy_addr_c = rsa_dec->phy_addr_dq + rsa_dec->q_len;
++	rsa_dec->phy_addr_g = rsa_dec->phy_addr_c + rsa_dec->p_len;
++
++	rsa_dec->phy_addr_tmp1 = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_tmp1, (rsa_dec->p_len + rsa_dec->q_len), DMA_BIDIRECTIONAL);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_tmp1)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f3(): can't map phy_addr_tmp1\n");
++		ret = -ENOMEM;
++		goto unmap_tmp1;
++	}
++	rsa_dec->phy_addr_tmp2 = rsa_dec->phy_addr_tmp1 + rsa_dec->p_len;
++
++	rsa_dec->phy_addr_f = (caam_dma_addr_t)dma_map_single(jrdev, rsa_dec->addr_f, rsa_dec->f_len, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, rsa_dec->phy_addr_f)) {
++		dev_err(jrdev, "pk_rsa_decrypt_f3(): can't map phy_addr_f\n");
++		ret = -ENOMEM;
++		goto unmap_f;
++	} 
++
++	pdb.c_dma = rsa_dec->phy_addr_c;
++	pdb.p_dma = rsa_dec->phy_addr_p;
++	pdb.q_dma = rsa_dec->phy_addr_q;
++	pdb.dp_dma = rsa_dec->phy_addr_dp;
++	pdb.dq_dma = rsa_dec->phy_addr_dq;
++	pdb.tmp1_dma = rsa_dec->phy_addr_tmp1;
++	pdb.tmp2_dma = rsa_dec->phy_addr_tmp2;
++	pdb.f_dma = rsa_dec->phy_addr_f;
++	pdb.g_dma = rsa_dec->phy_addr_g;
++	pdb.sgf = rsa_dec->n_len & 0xfff;
++	pdb.p_q_len = ((rsa_dec->q_len & 0xfff) << RSA_PDB_D_SHIFT) | (rsa_dec->p_len & 0xfff);
++
++	init_rsa_priv_f3_desc(desc, &pdb);
++
++#ifdef PK_DEBUG
++	printk("\n RSA Decrypt F3 Job descriptor: ");
++	for (i = 0; i < sizeof(struct rsa_priv_f3_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_f, rsa_dec->f_len, DMA_FROM_DEVICE);
++
++unmap_tmp1:
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_tmp1, (rsa_dec->p_len + rsa_dec->q_len), DMA_BIDIRECTIONAL);    
++
++unmap_f:
++	dma_unmap_single(jrdev, rsa_dec->phy_addr_p, (rsa_dec->p_len * 3  + rsa_dec->q_len * 2 + rsa_dec->g_len), DMA_TO_DEVICE);
++    
++unmap_p:
++	return ret;
++}
++EXPORT_SYMBOL(pk_rsa_decrypt_f3);
++
++int pk_dsa_sign_init(pk_dsa_sign_t *dsa_sign)
++{
++	int ret = 0;
++
++	if (0 == dsa_sign->l_len || 0 == dsa_sign->n_len)
++		return -ENOMEM;
++	dsa_sign->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dsa_sign->desc))
++		goto desc_alloc_fail;
++
++    dsa_sign->addr_q = kmalloc((dsa_sign->l_len*2 + dsa_sign->n_len * 5), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dsa_sign->addr_q))
++		goto q_alloc_fail;
++        
++	memset(dsa_sign->addr_q, 0, (dsa_sign->l_len*2 + dsa_sign->n_len * 5));
++	dsa_sign->addr_r = dsa_sign->addr_q + dsa_sign->l_len;
++	dsa_sign->addr_g = dsa_sign->addr_r + dsa_sign->n_len;
++	dsa_sign->addr_s = dsa_sign->addr_g + dsa_sign->l_len;
++	dsa_sign->addr_f = dsa_sign->addr_s + dsa_sign->n_len;
++	dsa_sign->addr_c = dsa_sign->addr_f + dsa_sign->n_len;
++	dsa_sign->addr_d = dsa_sign->addr_c + dsa_sign->n_len;
++	return ret;
++	
++q_alloc_fail:
++	kfree(dsa_sign->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_dsa_sign_init);
++
++int pk_dsa_sign_deinit(pk_dsa_sign_t *dsa_sign)
++{
++	if (dsa_sign->addr_q)
++		kfree_sensitive(dsa_sign->addr_q);
++	if (dsa_sign->desc)
++		kfree(dsa_sign->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_dsa_sign_deinit);
++
++int pk_dsa_sign(pk_dsa_sign_t *dsa_sign)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = dsa_sign->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct dsa_sign_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dsa_sign->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, dsa_sign->addr_q, (dsa_sign->l_len*2 + dsa_sign->n_len * 3), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, dsa_sign->phy_addr_q)) {
++		dev_err(jrdev, "pk_dsa_sign(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}	
++	dsa_sign->phy_addr_r = dsa_sign->phy_addr_q + dsa_sign->l_len;
++	dsa_sign->phy_addr_g = dsa_sign->phy_addr_r + dsa_sign->n_len;
++	dsa_sign->phy_addr_s = dsa_sign->phy_addr_g + dsa_sign->l_len;
++	dsa_sign->phy_addr_f = dsa_sign->phy_addr_s + dsa_sign->n_len;
++
++	dsa_sign->phy_addr_c = (caam_dma_addr_t)dma_map_single(jrdev, dsa_sign->addr_c, dsa_sign->n_len * 2, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, dsa_sign->phy_addr_c)) {
++		dev_err(jrdev, "pk_dsa_sign(): can't map phy_addr_c\n");
++		ret = -ENOMEM;
++		goto unmap_c;
++	}
++	dsa_sign->phy_addr_d = dsa_sign->phy_addr_c + dsa_sign->n_len;
++
++
++	pdb.sgf_ln = ((dsa_sign->l_len & 0x3ff) << DSA_PDB_L_SHIFT) | ((dsa_sign->n_len & DSA_PDB_N_MASK));
++	pdb.q_dma = dsa_sign->phy_addr_q;
++	pdb.r_dma = dsa_sign->phy_addr_r;
++	pdb.g_dma = dsa_sign->phy_addr_g;
++	pdb.s_dma = dsa_sign->phy_addr_s;
++	pdb.f_dma = dsa_sign->phy_addr_f;
++	pdb.c_dma = dsa_sign->phy_addr_c;
++	pdb.d_dma = dsa_sign->phy_addr_d;
++
++	init_dsa_sign_desc(desc, &pdb);
++
++#ifdef PK_DEBUG
++	printk("\n DSA Sign Job descriptor: ");
++	for (i = 0; i < sizeof(struct dsa_sign_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, dsa_sign->phy_addr_c, dsa_sign->n_len * 2, DMA_FROM_DEVICE);
++	
++unmap_c:
++	dma_unmap_single(jrdev, dsa_sign->phy_addr_q, (dsa_sign->l_len*2 + dsa_sign->n_len * 3), DMA_TO_DEVICE);
++	
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_dsa_sign);
++
++int pk_dsa_verify_init(pk_dsa_verify_t *dsa_verify)
++{
++	int ret = 0;
++
++	if (0 == dsa_verify->l_len || 0 == dsa_verify->n_len)
++		return -ENOMEM;
++	dsa_verify->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dsa_verify->desc))
++		goto desc_alloc_fail;
++	
++    dsa_verify->addr_q = kmalloc((dsa_verify->l_len * 4 + dsa_verify->n_len * 4), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!dsa_verify->addr_q))
++		goto q_alloc_fail;
++        
++	memset(dsa_verify->addr_q, 0, (dsa_verify->l_len * 4 + dsa_verify->n_len * 4));
++	dsa_verify->addr_r = dsa_verify->addr_q + dsa_verify->l_len;
++	dsa_verify->addr_g = dsa_verify->addr_r + dsa_verify->n_len;
++	dsa_verify->addr_w = dsa_verify->addr_g + dsa_verify->l_len;
++	dsa_verify->addr_f = dsa_verify->addr_w + dsa_verify->l_len;
++	dsa_verify->addr_c = dsa_verify->addr_f + dsa_verify->n_len;
++	dsa_verify->addr_d = dsa_verify->addr_c + dsa_verify->n_len;
++	dsa_verify->addr_tmp = dsa_verify->addr_d + dsa_verify->n_len;
++	
++	return ret;
++
++q_alloc_fail:
++	kfree(dsa_verify->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_dsa_verify_init);
++
++int pk_dsa_verify_deinit(pk_dsa_verify_t *dsa_verify)
++{
++	if (dsa_verify->addr_q)
++		kfree_sensitive(dsa_verify->addr_q);
++	if (dsa_verify->desc)
++		kfree(dsa_verify->desc);
++
++	return 0;
++}
++EXPORT_SYMBOL(pk_dsa_verify_deinit);
++
++int pk_dsa_verify(pk_dsa_verify_t *dsa_verify)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = dsa_verify->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct dsa_verify_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dsa_verify->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, dsa_verify->addr_q, (dsa_verify->l_len * 3 + dsa_verify->n_len * 4), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, dsa_verify->phy_addr_q)) {
++		dev_err(jrdev, "pk_dsa_verify(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}
++	dsa_verify->phy_addr_r = dsa_verify->phy_addr_q + dsa_verify->l_len;
++	dsa_verify->phy_addr_g = dsa_verify->phy_addr_r + dsa_verify->n_len;
++	dsa_verify->phy_addr_w = dsa_verify->phy_addr_g + dsa_verify->l_len;
++	dsa_verify->phy_addr_f = dsa_verify->phy_addr_w + dsa_verify->l_len;
++	dsa_verify->phy_addr_c = dsa_verify->phy_addr_f + dsa_verify->n_len;
++	dsa_verify->phy_addr_d = dsa_verify->phy_addr_c + dsa_verify->n_len;
++	
++	dsa_verify->phy_addr_tmp = (caam_dma_addr_t)dma_map_single(jrdev, dsa_verify->addr_tmp, dsa_verify->l_len, DMA_BIDIRECTIONAL);
++	if (dma_mapping_error(jrdev, dsa_verify->phy_addr_tmp)) {
++		dev_err(jrdev, "pk_dsa_verify(): can't map phy_addr_tmp\n");
++		ret = -ENOMEM;
++		goto unmap_tmp;
++	}
++
++	pdb.sgf_ln = ((dsa_verify->l_len & 0x3ff) << DSA_PDB_L_SHIFT) | ((dsa_verify->n_len & DSA_PDB_N_MASK));
++	pdb.q_dma = dsa_verify->phy_addr_q;
++	pdb.r_dma = dsa_verify->phy_addr_r;
++	pdb.g_dma = dsa_verify->phy_addr_g;
++	pdb.w_dma = dsa_verify->phy_addr_w;
++	pdb.f_dma = dsa_verify->phy_addr_f;
++	pdb.c_dma = dsa_verify->phy_addr_c;
++	pdb.d_dma = dsa_verify->phy_addr_d;
++	pdb.tmp_dma = dsa_verify->phy_addr_tmp;
++
++	init_dsa_verify_desc(desc, &pdb);
++
++#ifdef PK_DEBUG
++	printk("\n DSA Verify Job descriptor: ");
++	for (i = 0; i < sizeof(struct dsa_verify_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	if (res.err)
++		ret = false;
++	else
++		ret = true;
++	dma_unmap_single(jrdev, dsa_verify->phy_addr_tmp, dsa_verify->l_len, DMA_TO_DEVICE);
++	
++unmap_tmp:
++	dma_unmap_single(jrdev, dsa_verify->phy_addr_q, (dsa_verify->l_len * 3 + dsa_verify->n_len * 4), DMA_TO_DEVICE);
++	
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_dsa_verify);
++
++int pk_ecdsa_sign_init(pk_ecdsa_sign_t *ecdsa_sign)
++{
++	int ret = 0;
++
++	if (0 == ecdsa_sign->l_len || 0 == ecdsa_sign->n_len)
++		return -ENOMEM;
++	ecdsa_sign->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdsa_sign->desc))
++		goto desc_alloc_fail;
++
++    ecdsa_sign->addr_q = kmalloc((ecdsa_sign->l_len * 5 + ecdsa_sign->n_len * 5), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdsa_sign->addr_q))
++		goto q_alloc_fail;
++
++	memset(ecdsa_sign->addr_q, 0, (ecdsa_sign->l_len * 5 + ecdsa_sign->n_len * 5));
++	ecdsa_sign->addr_r = ecdsa_sign->addr_q + ecdsa_sign->l_len;
++	ecdsa_sign->addr_g = ecdsa_sign->addr_r + ecdsa_sign->n_len;
++	ecdsa_sign->addr_s = ecdsa_sign->addr_g + ecdsa_sign->l_len * 2;
++	ecdsa_sign->addr_f = ecdsa_sign->addr_s + ecdsa_sign->n_len;
++	ecdsa_sign->addr_ab = ecdsa_sign->addr_f + ecdsa_sign->n_len;
++	ecdsa_sign->addr_c = ecdsa_sign->addr_ab + ecdsa_sign->l_len * 2;
++	ecdsa_sign->addr_d = ecdsa_sign->addr_c + ecdsa_sign->n_len;	
++
++	return ret;
++
++q_alloc_fail:
++	kfree(ecdsa_sign->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_ecdsa_sign_init);
++
++int pk_ecdsa_sign_deinit(pk_ecdsa_sign_t *ecdsa_sign)
++{
++	if (ecdsa_sign->addr_q)
++		kfree_sensitive(ecdsa_sign->addr_q);
++	if (ecdsa_sign->desc)
++		kfree(ecdsa_sign->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(pk_ecdsa_sign_deinit);
++
++int pk_ecdsa_sign(pk_ecdsa_sign_t *ecdsa_sign)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = ecdsa_sign->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct ecdsa_sign_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	ecdsa_sign->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, ecdsa_sign->addr_q, (ecdsa_sign->l_len * 5 + ecdsa_sign->n_len * 3), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, ecdsa_sign->phy_addr_q)) {
++		dev_err(jrdev, "pk_ecdsa_sign(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}	
++	ecdsa_sign->phy_addr_r = ecdsa_sign->phy_addr_q + ecdsa_sign->l_len;
++	ecdsa_sign->phy_addr_g = ecdsa_sign->phy_addr_r + ecdsa_sign->n_len;
++	ecdsa_sign->phy_addr_s = ecdsa_sign->phy_addr_g + ecdsa_sign->l_len * 2;
++	ecdsa_sign->phy_addr_f = ecdsa_sign->phy_addr_s + ecdsa_sign->n_len;
++	ecdsa_sign->phy_addr_ab = ecdsa_sign->phy_addr_f + ecdsa_sign->n_len;
++
++	ecdsa_sign->phy_addr_c = (caam_dma_addr_t)dma_map_single(jrdev, ecdsa_sign->addr_c, ecdsa_sign->n_len * 2, DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, ecdsa_sign->phy_addr_c)) {
++		dev_err(jrdev, "pk_dsa_sign(): can't map phy_addr_c\n");
++		ret = -ENOMEM;
++		goto unmap_c;
++	}
++	ecdsa_sign->phy_addr_d = ecdsa_sign->phy_addr_c + ecdsa_sign->n_len;
++	
++
++
++	pdb.sgf_ln = ((ecdsa_sign->l_len & 0x3ff) << DSA_PDB_L_SHIFT) | ((ecdsa_sign->n_len & DSA_PDB_N_MASK));
++	pdb.q_dma = ecdsa_sign->phy_addr_q;
++	pdb.r_dma = ecdsa_sign->phy_addr_r;
++	pdb.g_dma = ecdsa_sign->phy_addr_g;
++	pdb.s_dma = ecdsa_sign->phy_addr_s;
++	pdb.f_dma = ecdsa_sign->phy_addr_f;
++	pdb.c_dma = ecdsa_sign->phy_addr_c;
++	pdb.d_dma = ecdsa_sign->phy_addr_d;
++	pdb.ab_dma = ecdsa_sign->phy_addr_ab;
++
++	init_ecdsa_sign_desc(desc, &pdb, ecdsa_sign->arith_type);
++
++#ifdef PK_DEBUG
++	printk("\n ECDSA Sign Job descriptor: ");
++	for (i = 0; i < sizeof(struct ecdsa_sign_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	dma_unmap_single(jrdev, ecdsa_sign->phy_addr_c, ecdsa_sign->n_len * 2, DMA_FROM_DEVICE);
++	
++unmap_c:
++	dma_unmap_single(jrdev, ecdsa_sign->phy_addr_q, (ecdsa_sign->l_len * 5 + ecdsa_sign->n_len * 3), DMA_TO_DEVICE);
++
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_ecdsa_sign);
++
++int pk_ecdsa_verify_init(pk_ecdsa_verify_t *ecdsa_verify)
++{
++	int ret = 0;
++
++	if (0 == ecdsa_verify->l_len || 0 == ecdsa_verify->n_len)
++		return -ENOMEM;
++	ecdsa_verify->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdsa_verify->desc))
++		goto desc_alloc_fail;
++
++    ecdsa_verify->addr_q = kmalloc((ecdsa_verify->l_len * 9 + ecdsa_verify->n_len * 4), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!ecdsa_verify->addr_q))
++		goto q_alloc_fail;
++
++	memset(ecdsa_verify->addr_q, 0, (ecdsa_verify->l_len * 9 + ecdsa_verify->n_len * 4));
++	ecdsa_verify->addr_r = ecdsa_verify->addr_q + ecdsa_verify->l_len;
++	ecdsa_verify->addr_g = ecdsa_verify->addr_r + ecdsa_verify->n_len;
++	ecdsa_verify->addr_w = ecdsa_verify->addr_g + ecdsa_verify->l_len * 2;
++	ecdsa_verify->addr_f = ecdsa_verify->addr_w + ecdsa_verify->l_len * 2;
++	ecdsa_verify->addr_c = ecdsa_verify->addr_f + ecdsa_verify->n_len;
++	ecdsa_verify->addr_d = ecdsa_verify->addr_c + ecdsa_verify->n_len;
++	ecdsa_verify->addr_ab = ecdsa_verify->addr_d + ecdsa_verify->n_len;
++	ecdsa_verify->addr_tmp = ecdsa_verify->addr_ab + ecdsa_verify->l_len * 2;
++
++	return ret;
++
++q_alloc_fail:
++	kfree(ecdsa_verify->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(pk_ecdsa_verify_init);
++
++int pk_ecdsa_verify_deinit(pk_ecdsa_verify_t *ecdsa_verify)
++{
++	if (ecdsa_verify->addr_q)
++		kfree_sensitive(ecdsa_verify->addr_q);
++	if (ecdsa_verify->desc)
++		kfree(ecdsa_verify->desc);
++
++	return 0;
++}
++EXPORT_SYMBOL(pk_ecdsa_verify_deinit);
++
++int pk_ecdsa_verify(pk_ecdsa_verify_t *ecdsa_verify)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = ecdsa_verify->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct ecdsa_verify_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	ecdsa_verify->phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, ecdsa_verify->addr_q, (ecdsa_verify->l_len * 7 + ecdsa_verify->n_len * 4), DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, ecdsa_verify->phy_addr_q)) {
++		dev_err(jrdev, "pk_ecdsa_verify(): can't map phy_addr_q\n");
++		ret = -ENOMEM;
++		goto unmap_q;
++	}
++	ecdsa_verify->phy_addr_r  = ecdsa_verify->phy_addr_q + ecdsa_verify->l_len;
++	ecdsa_verify->phy_addr_g  = ecdsa_verify->phy_addr_r + ecdsa_verify->n_len;
++	ecdsa_verify->phy_addr_w  = ecdsa_verify->phy_addr_g + ecdsa_verify->l_len * 2;
++	ecdsa_verify->phy_addr_f  = ecdsa_verify->phy_addr_w + ecdsa_verify->l_len * 2;
++	ecdsa_verify->phy_addr_c  = ecdsa_verify->phy_addr_f + ecdsa_verify->n_len;
++	ecdsa_verify->phy_addr_d  = ecdsa_verify->phy_addr_c + ecdsa_verify->n_len;
++	ecdsa_verify->phy_addr_ab  = ecdsa_verify->phy_addr_d + ecdsa_verify->n_len;
++	
++	ecdsa_verify->phy_addr_tmp = (caam_dma_addr_t)dma_map_single(jrdev, ecdsa_verify->addr_tmp, ecdsa_verify->l_len * 2, DMA_BIDIRECTIONAL);
++	if (dma_mapping_error(jrdev, ecdsa_verify->phy_addr_tmp)) {
++		dev_err(jrdev, "pk_ecdsa_verify(): can't map phy_addr_tmp\n");
++		ret = -ENOMEM;
++		goto unmap_tmp;
++	}
++
++
++	pdb.sgf_ln = ((ecdsa_verify->l_len & 0x3ff) << DSA_PDB_L_SHIFT) | ((ecdsa_verify->n_len & DSA_PDB_N_MASK));
++	pdb.q_dma = ecdsa_verify->phy_addr_q;
++	pdb.r_dma = ecdsa_verify->phy_addr_r;
++	pdb.g_dma = ecdsa_verify->phy_addr_g;
++	pdb.w_dma = ecdsa_verify->phy_addr_w;
++	pdb.f_dma = ecdsa_verify->phy_addr_f;
++	pdb.c_dma = ecdsa_verify->phy_addr_c;
++	pdb.d_dma = ecdsa_verify->phy_addr_d;
++	pdb.tmp_dma = ecdsa_verify->phy_addr_tmp;
++	pdb.ab_dma = ecdsa_verify->phy_addr_ab;
++
++	init_ecdsa_verify_desc(desc, &pdb, ecdsa_verify->arith_type);
++
++	dma_sync_single_for_device(pk_crypto_ctx->jrdev, pdb.q_dma, ecdsa_verify->l_len * 7 + ecdsa_verify->n_len * 4, DMA_TO_DEVICE);
++
++#ifdef PK_DEBUG
++	printk("\n ECDSA Verify Job descriptor: ");
++	for (i = 0; i < sizeof(struct ecdsa_verify_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	if (res.err)
++		ret = false;
++	else
++		ret = true;
++	
++	dma_unmap_single(jrdev, ecdsa_verify->phy_addr_tmp, (ecdsa_verify->l_len * 2), DMA_TO_DEVICE);
++	
++unmap_tmp:
++	dma_unmap_single(jrdev, ecdsa_verify->phy_addr_q, (ecdsa_verify->l_len * 7 + ecdsa_verify->n_len * 4), DMA_TO_DEVICE);
++
++unmap_q:
++	return ret;
++}
++EXPORT_SYMBOL(pk_ecdsa_verify);
++
++int mp_sign_init(mp_sign_t *mp_sign)
++{
++	int ret = 0;
++
++	if (0 == mp_sign->m_len)
++		return -ENOMEM;
++	mp_sign->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!mp_sign->desc))
++		goto desc_alloc_fail;
++	
++	if (P256 == mp_sign->curve_select)
++		mp_sign->addr_m = kmalloc((mp_sign->m_len + (32 * 3)), GFP_KERNEL | GFP_DMA); /*N = 32 (256bit)*/
++	else if (P384 == mp_sign->curve_select)
++		mp_sign->addr_m = kmalloc((mp_sign->m_len + 32 + (48 * 2)), GFP_KERNEL | GFP_DMA); /*N = 48 (384bit)*/
++	else if (P521 == mp_sign->curve_select)
++		mp_sign->addr_m = kmalloc((mp_sign->m_len + 32 + (66 * 2)), GFP_KERNEL | GFP_DMA); /*N = 66 (521bit)*/
++	else {
++		printk("\n invalid Curve \n");
++		return -EINVAL;
++	}
++	if (unlikely(!mp_sign->addr_m))
++		goto q_alloc_fail;
++
++	if (P256 == mp_sign->curve_select)
++		memset(mp_sign->addr_m, 0, (mp_sign->m_len + (32 * 3)));
++	else if (P384 == mp_sign->curve_select)
++		memset(mp_sign->addr_m, 0, (mp_sign->m_len + 32 + (48 * 2)));
++	else if (P521 == mp_sign->curve_select)
++		memset(mp_sign->addr_m, 0, (mp_sign->m_len + 32 + (66 * 2)));
++	mp_sign->addr_mes_rep = mp_sign->addr_m + mp_sign->m_len;
++	mp_sign->addr_c = mp_sign->addr_mes_rep + 32;
++	if (P256 == mp_sign->curve_select) {
++		mp_sign->addr_d = mp_sign->addr_c + 32;
++	}
++	else if (P384 == mp_sign->curve_select) {
++		mp_sign->addr_d = mp_sign->addr_c + 48;
++	}
++	else if (P521 == mp_sign->curve_select) {
++		mp_sign->addr_d = mp_sign->addr_c + 66;
++	}
++	
++
++	return ret;
++
++q_alloc_fail:
++	kfree(mp_sign->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(mp_sign_init);
++
++int mp_sign_deinit(mp_sign_t *mp_sign)
++{
++	if (mp_sign->addr_m)
++		kfree_sensitive(mp_sign->addr_m);
++	if (mp_sign->desc)
++		kfree(mp_sign->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(mp_sign_deinit);
++
++int mp_sign(mp_sign_t *mp_sign)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = mp_sign->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct mp_sign_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	mp_sign->phy_addr_m = (caam_dma_addr_t)dma_map_single(jrdev, mp_sign->addr_m, mp_sign->m_len, DMA_TO_DEVICE);
++	if (dma_mapping_error(jrdev, mp_sign->phy_addr_m)) {
++		dev_err(jrdev, "mp_sign(): can't map phy_addr_m\n");
++		ret = -ENOMEM;
++		goto unmap_m;
++	}
++	if (P256 == mp_sign->curve_select)
++		mp_sign->phy_addr_mes_rep = (caam_dma_addr_t)dma_map_single(jrdev, mp_sign->addr_mes_rep, (32 * 3), DMA_FROM_DEVICE);
++	else if (P384 == mp_sign->curve_select)
++		mp_sign->phy_addr_mes_rep = (caam_dma_addr_t)dma_map_single(jrdev, mp_sign->addr_mes_rep, (32 + (48 * 2)), DMA_FROM_DEVICE);
++	else if (P521 == mp_sign->curve_select)
++		mp_sign->phy_addr_mes_rep = (caam_dma_addr_t)dma_map_single(jrdev, mp_sign->addr_mes_rep, (32 + (66 * 2)), DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, mp_sign->phy_addr_mes_rep)) {
++		dev_err(jrdev, "mp_sign(): can't map phy_addr_mes_rep\n");
++		ret = -ENOMEM;
++		goto unmap_mes_rep;
++	}
++	mp_sign->phy_addr_c = mp_sign->phy_addr_mes_rep +32;
++	if (P256 == mp_sign->curve_select) {
++		mp_sign->phy_addr_d = mp_sign->phy_addr_c + 32;
++	}
++	else if (P384 == mp_sign->curve_select) {
++		mp_sign->phy_addr_d = mp_sign->phy_addr_c + 48;
++	}
++	else if (P521 == mp_sign->curve_select) {
++		mp_sign->phy_addr_d = mp_sign->phy_addr_c + 66;
++	}
++
++
++	pdb.sgf_csel = mp_sign->curve_select << MP_PDB_CSEL_SHIFT;
++	pdb.m_dma = mp_sign->phy_addr_m;
++	pdb.mes_rep_dma = mp_sign->phy_addr_mes_rep;
++	pdb.c_dma = mp_sign->phy_addr_c;
++	pdb.d_dma = mp_sign->phy_addr_d;
++	pdb.m_length = mp_sign->m_len;
++
++	init_manufacturing_protection_sign_desc(desc, &pdb);
++	
++	dma_sync_single_for_device(pk_crypto_ctx->jrdev, pdb.m_dma, mp_sign->m_len, DMA_TO_DEVICE);
++
++#ifdef PK_DEBUG
++	printk("\n Manufacturing Protection Sign Job descriptor: ");
++	for (i = 0; i < sizeof(struct mp_sign_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	if (P256 == mp_sign->curve_select)
++		dma_unmap_single(jrdev, mp_sign->phy_addr_mes_rep, (32 * 3), DMA_FROM_DEVICE);
++	else if (P384 == mp_sign->curve_select)
++		dma_unmap_single(jrdev, mp_sign->phy_addr_mes_rep, (32 + (48 * 2)), DMA_FROM_DEVICE);
++	else if (P521 == mp_sign->curve_select)
++		dma_unmap_single(jrdev, mp_sign->phy_addr_mes_rep, (32 + (66 * 2)), DMA_FROM_DEVICE);
++	
++unmap_mes_rep:
++	dma_unmap_single(jrdev, mp_sign->phy_addr_m, mp_sign->m_len, DMA_TO_DEVICE);
++unmap_m:
++	return ret;
++}
++EXPORT_SYMBOL(mp_sign);
++
++int mp_get_pubk_init(mp_pubk_t *mp_pubk)
++{
++	int ret = 0;
++
++	mp_pubk->desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++	if (unlikely(!mp_pubk->desc))
++		goto desc_alloc_fail;
++	
++	if (P256 == mp_pubk->curve_select)
++		mp_pubk->addr_w = kmalloc((32 * 2), GFP_KERNEL | GFP_DMA); /*N = 32 (256bit)*/
++	else if (P384 == mp_pubk->curve_select)
++		mp_pubk->addr_w = kmalloc((48 * 2), GFP_KERNEL | GFP_DMA); /*N = 48 (384bit)*/
++	else if (P521 == mp_pubk->curve_select)
++		mp_pubk->addr_w = kmalloc((66 * 2), GFP_KERNEL | GFP_DMA); /*N = 66 (521bit)*/
++	else {
++		printk("\n invalid Curve \n");
++		return -EINVAL;
++	}
++	if (unlikely(!mp_pubk->addr_w))
++		goto q_alloc_fail;
++
++	if (P256 == mp_pubk->curve_select)
++		memset(mp_pubk->addr_w, 0, 32 * 2);
++	else if (P384 == mp_pubk->curve_select)
++		memset(mp_pubk->addr_w, 0, 48 * 2);
++	else if (P521 == mp_pubk->curve_select)
++		memset(mp_pubk->addr_w, 0, 66 * 2);
++	
++
++	return ret;
++
++q_alloc_fail:
++	kfree(mp_pubk->desc);
++desc_alloc_fail:
++	return -ENOMEM;
++}
++EXPORT_SYMBOL(mp_get_pubk_init);
++
++int mp_get_pubk_deinit(mp_pubk_t *mp_pubk)
++{
++	if (mp_pubk->addr_w)
++		kfree_sensitive(mp_pubk->addr_w);
++	if (mp_pubk->desc)
++		kfree(mp_pubk->desc);
++	
++	return 0;
++}
++EXPORT_SYMBOL(mp_get_pubk_deinit);
++
++int mp_get_pubk(mp_pubk_t *mp_pubk)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	u32 *desc = mp_pubk->desc;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	struct mp_pubk_gen_pdb pdb;
++#ifdef PK_DEBUG
++	uint32_t i;
++#endif
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	if (P256 == mp_pubk->curve_select)
++		mp_pubk->phy_addr_w = (caam_dma_addr_t)dma_map_single(jrdev, mp_pubk->addr_w, (32 * 2), DMA_FROM_DEVICE);
++	else if (P384 == mp_pubk->curve_select)
++		mp_pubk->phy_addr_w = (caam_dma_addr_t)dma_map_single(jrdev, mp_pubk->addr_w, (48 * 2), DMA_FROM_DEVICE);
++	else if (P521 == mp_pubk->curve_select)
++		mp_pubk->phy_addr_w = (caam_dma_addr_t)dma_map_single(jrdev, mp_pubk->addr_w, (66 * 2), DMA_FROM_DEVICE);
++	if (dma_mapping_error(jrdev, mp_pubk->phy_addr_w)) {
++		dev_err(jrdev, "mp_get_pubk(): can't map phy_addr_w\n");
++		ret = -ENOMEM;
++		goto unmap_w;
++	}
++
++	pdb.sgf_csel = mp_pubk->curve_select << MP_PDB_CSEL_SHIFT;
++	pdb.w_dma = mp_pubk->phy_addr_w;
++
++	init_manufacturing_protection_pubk_gen_desc(desc, &pdb);
++	
++
++#ifdef PK_DEBUG
++	printk("\n Manufacturing Protection Public Key generation Job descriptor: ");
++	for (i = 0; i < sizeof(struct mp_pubk_gen_pdb) + 2; i++)
++		printk("[%d] %x\t", i, desc[i]);
++	printk("\n");
++#endif
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	if (P256 == mp_pubk->curve_select)
++		dma_unmap_single(jrdev, mp_pubk->phy_addr_w, (32 * 2), DMA_FROM_DEVICE);
++	else if (P384 == mp_pubk->curve_select)
++		dma_unmap_single(jrdev, mp_pubk->phy_addr_w, (48 * 2), DMA_FROM_DEVICE);
++	else if (P521 == mp_pubk->curve_select)
++		dma_unmap_single(jrdev, mp_pubk->phy_addr_w, (66 * 2), DMA_FROM_DEVICE);
++
++unmap_w:
++	return ret;
++}
++EXPORT_SYMBOL(mp_get_pubk);
++
++////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++struct pkha_operation_result {
++	struct completion completion;
++	int err;
++};
++
++void pkha_operation_done(struct device *dev, u32 *desc, u32 err, void *context)
++{
++	struct pkha_operation_result *res = context;
++
++#ifdef DEBUG
++	dev_err(dev, "%s %d: err 0x%x\n", __func__, __LINE__, err);
++#endif
++
++	if (0x30000058 == ( err & 0xFF0000FF))
++		err = 0x58;
++	else if (0x30000001 == ( err & 0xFF0000FF))
++		err = 1;
++	else {
++    	if (err)
++			caam_jr_strstatus(dev, err);
++	}
++
++	res->err = err;
++
++	complete(&res->completion);
++}
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_add
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_add(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ADD | OP_ALG_PKMODE_MOD_F2M);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ADD);
++
++	if (pk_crypto_ctx->caam_era > 8)
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));	
++	else
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_add);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_sub1
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_sub1(caam_dma_addr_t dma_addr_a,
++                          uint16_t size_a,
++                          caam_dma_addr_t dma_addr_b,
++                          uint16_t size_b,
++                          caam_dma_addr_t dma_addr_n,
++                          uint16_t size_n,
++                          caam_dma_addr_t dma_addr_out,
++                          uint16_t *result_size,
++                          u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_SUB_AB);
++
++	if (pk_crypto_ctx->caam_era > 8)
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_sub1);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_sub2
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_sub2(caam_dma_addr_t dma_addr_a,
++                          uint16_t size_a,
++                          caam_dma_addr_t dma_addr_b,
++                          uint16_t size_b,
++                          caam_dma_addr_t dma_addr_n,
++                          uint16_t size_n,
++                          caam_dma_addr_t dma_addr_out,
++                          uint16_t *result_size,
++                          u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_SUB_BA);
++
++	if (pk_crypto_ctx->caam_era > 8) 		
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_sub2);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_mul
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_mul(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         pkha_montgomery_form_t mont_in,
++                         pkha_montgomery_form_t mont_out,
++                         pkha_timing_t equal_time,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++	u32 operation = 0;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++	if (PKHA_F2M_Arith == arith_type)
++		operation |= OP_ALG_PKMODE_MOD_F2M;
++	if (PKHA_MontgomeryFormat == mont_in)
++		operation |= OP_ALG_PKMODE_MOD_IN_MONTY;
++	if (PKHA_MontgomeryFormat == mont_out)
++		operation |= OP_ALG_PKMODE_MOD_OUT_MONTY;
++	if (PKHA_TimingEqualized == equal_time)
++		operation |= OP_ALG_PKMODE_TIME_EQ;
++	
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_MULT | operation);
++
++	if (pk_crypto_ctx->caam_era > 8)		
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_mul);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_exp
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_exp(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_e,
++                         uint16_t size_e,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         pkha_montgomery_form_t mont_in,
++                         pkha_timing_t equal_time,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++	u32 operation = 0;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_key(desc, dma_addr_e,
++				 size_e, KEY_DEST_PKHA_E | CLASS_1 | (0x1 << KEY_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_key(desc, dma_addr_e,
++				 size_e, KEY_DEST_PKHA_E | CLASS_1);
++
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	if (PKHA_F2M_Arith == arith_type)
++		operation |= OP_ALG_PKMODE_MOD_F2M;
++	if (PKHA_MontgomeryFormat == mont_in)
++		operation |= OP_ALG_PKMODE_MOD_IN_MONTY;
++	if (PKHA_TimingEqualized == equal_time)
++		operation |= OP_ALG_PKMODE_TIME_EQ;
++	
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_EXPO | operation);
++
++	if (pk_crypto_ctx->caam_era > 8)		
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_exp);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_red
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_red(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++	
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_REDUCT | OP_ALG_PKMODE_MOD_F2M);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_REDUCT);
++
++	if (pk_crypto_ctx->caam_era > 8) 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_red);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_mod_inv
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_mod_inv(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_INV | OP_ALG_PKMODE_MOD_F2M);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_INV);
++
++	if (pk_crypto_ctx->caam_era > 8) 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_inv);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_gcd
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_gcd(caam_dma_addr_t dma_addr_a,
++                      uint16_t size_a,
++                      caam_dma_addr_t dma_addr_n,
++                      uint16_t size_n,
++                      caam_dma_addr_t dma_addr_out,
++                      uint16_t *result_size,
++                      pkha_f2m_t arith_type,
++                      u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++	
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_GCD | OP_ALG_PKMODE_MOD_F2M);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_GCD);
++
++	if (pk_crypto_ctx->caam_era > 8) 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else 
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_gcd);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_primality_test
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_primality_test(caam_dma_addr_t dma_addr_a,
++                                uint16_t size_a,
++                                caam_dma_addr_t dma_addr_b,
++                                uint16_t size_b,
++                                caam_dma_addr_t dma_addr_n,
++                                uint16_t size_n,
++                                bool *result,
++                                u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++	uint32_t *test_result = NULL;
++	caam_dma_addr_t dma_addr_out;
++    caam_dma_addr_t phy_addr = 0;
++
++    test_result = kzalloc(4, GFP_KERNEL | GFP_DMA);
++    if (unlikely(NULL == test_result))
++        return ret;
++    phy_addr = (caam_dma_addr_t)dma_map_single(jrdev, test_result, 4, DMA_FROM_DEVICE);
++    if (dma_mapping_error(jrdev, phy_addr)) {
++        kfree(test_result);
++        return ret;
++    }
++    dma_addr_out = phy_addr;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A);
++
++		append_fifo_load(desc, dma_addr_b,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_PRIMALITY);
++
++	if (pk_crypto_ctx->caam_era > 8)
++		append_fifo_store(desc, dma_addr_out, 4,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else
++		append_fifo_store(desc, dma_addr_out, 4,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++    append_cmd(desc, 0xA0C02058); /*jump: halt-user with status = 88 when the given number passes the Miller-Rabin primality test.*/
++	
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++    dma_unmap_single(jrdev, phy_addr, 4, DMA_FROM_DEVICE);
++	if (0x58 == ret ) {
++		*result = 1;
++		ret = 0;
++	}
++	else
++		*result = (bool)(*test_result);
++
++	kfree(test_result);
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_primality_test);
++
++/* MOD_R2 : R^2 mod N */
++int pkha_mod_r2(caam_dma_addr_t dma_addr_n,
++                      uint16_t size_n,
++                      caam_dma_addr_t dma_addr_out,
++                      uint16_t *result_size,
++                      pkha_f2m_t arith_type,
++                      u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8)		
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	else
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_MONT_CNST | OP_ALG_PKMODE_MOD_F2M);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_MONT_CNST);
++
++	if (pk_crypto_ctx->caam_era > 8)		
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B | (0x1 << FIFOST_PKLE_SHIFT));
++	else
++		append_fifo_store(desc, dma_addr_out, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_mod_r2);
++
++/* ram Mask bit  A, B, E, N        offset 6bit
++    quad Mask Q3, Q2, Q1, Q0     offset 16bit
++*/
++int pkha_clear_mem(uint8_t ramMask,
++                      uint8_t quadMask,
++                      u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++	uint32_t memory_to_clear;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	if((quadMask & 0xF) == 0xF) {
++        quadMask = 0;
++    }
++    memory_to_clear = (((uint32_t) ramMask & 0x0F) << 16) | (((uint32_t)quadMask & 0x0F) << 6);
++
++	init_job_desc(desc, 0);
++
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | memory_to_clear | OP_ALG_PKMODE_CLEARMEM);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_clear_mem);
++
++int pkha_copy_mem(uint8_t ramDest, uint8_t segDest,
++                      uint8_t ramSrc, uint8_t segSrc, uint8_t whichSize, u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	struct pkha_operation_result res = {0};
++	uint32_t memory_to_copy;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++    memory_to_copy = ((((uint32_t)ramSrc & 0x3) << 17) | (((uint32_t)segSrc & 0x3) << 8) | (((uint32_t)ramDest & 0x3) << 10) | (((uint32_t)segDest & 0x3) << 6));
++
++	init_job_desc(desc, 0);
++
++	if (whichSize)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | memory_to_copy | CPY_MEM_SRCSIZE);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | memory_to_copy | CPY_MEM_NSIZE);
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_copy_mem);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_ecc_add
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_ecc_add(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_r2_t r2_input,
++                         pkha_f2m_t arith_type,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	caam_dma_addr_t dma_addr_a0, dma_addr_a1, dma_addr_a3, dma_addr_b0, dma_addr_b1, dma_addr_b2, dma_addr_b3, dma_addr_out_b1, dma_addr_out_b2;
++	struct pkha_operation_result res = {0};
++	u32 operation = 0;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dma_addr_a0 = dma_addr_a;
++	dma_addr_a1 = dma_addr_a + QUAD1_BYTE_OFFSET;
++	dma_addr_a3 = dma_addr_a + QUAD3_BYTE_OFFSET;
++	dma_addr_b0 = dma_addr_b;
++	dma_addr_b1 = dma_addr_b + QUAD1_BYTE_OFFSET;
++	dma_addr_b2 = dma_addr_b + QUAD2_BYTE_OFFSET;
++	dma_addr_b3 = dma_addr_b + QUAD3_BYTE_OFFSET;
++	dma_addr_out_b1 = dma_addr_out;
++	dma_addr_out_b2 = dma_addr_out + QUAD1_BYTE_OFFSET;
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {		
++		append_fifo_load(desc, dma_addr_a0,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_a1,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b2,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B2 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b3,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B3 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a0,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0);
++
++		append_fifo_load(desc, dma_addr_a1,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1);
++
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3);
++
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0);
++
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1);
++
++		append_fifo_load(desc, dma_addr_b2,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B2);
++
++		append_fifo_load(desc, dma_addr_b3,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B3);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	if (PKHA_F2M_Arith == arith_type)
++		operation |= OP_ALG_PKMODE_MOD_F2M;
++	if (PKHA_R2_Input == r2_input)
++		operation |= OP_ALG_PKMODE_MOD_R2_IN;
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ECC_ADD | operation);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1 | (0x1 << FIFOST_PKLE_SHIFT));
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2 | (0x1 << FIFOST_PKLE_SHIFT));		
++	}
++	else {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1);
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2);
++	}
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++    
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_ecc_add);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_ecc_double
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_ecc_double(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	caam_dma_addr_t dma_addr_a3, dma_addr_b0, dma_addr_b1, dma_addr_b2, dma_addr_out_b1, dma_addr_out_b2;
++	struct pkha_operation_result res = {0};
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dma_addr_a3 = dma_addr_a + QUAD3_BYTE_OFFSET;
++	dma_addr_b0 = dma_addr_b;
++	dma_addr_b1 = dma_addr_b + QUAD1_BYTE_OFFSET;
++	dma_addr_b2 = dma_addr_b + QUAD2_BYTE_OFFSET;
++	dma_addr_out_b1 = dma_addr_out;
++	dma_addr_out_b2 = dma_addr_out + QUAD1_BYTE_OFFSET;
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++			append_fifo_load(desc, dma_addr_a3,
++					 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++			append_fifo_load(desc, dma_addr_b0,
++					 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++			append_fifo_load(desc, dma_addr_b1,
++					 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++			append_fifo_load(desc, dma_addr_b2,
++					 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B2 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++			append_fifo_load(desc, dma_addr_n,
++					 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3);
++
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0);
++
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1);
++
++		append_fifo_load(desc, dma_addr_b2,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B2);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++	}
++
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ECC_DBL | OP_ALG_PKMODE_MOD_F2M);
++	else
++		append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ECC_DBL);
++
++	if (pk_crypto_ctx->caam_era > 8) {		
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1 | (0x1 << FIFOST_PKLE_SHIFT));
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2 | (0x1 << FIFOST_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1);
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2);
++	}
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++    
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_ecc_double);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_ecc_mul
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_ecc_mul(caam_dma_addr_t dma_addr_a,
++                        uint16_t size_a,
++                        caam_dma_addr_t dma_addr_b,
++                        uint16_t size_b,
++                        caam_dma_addr_t dma_addr_n,
++                        uint16_t size_n,
++                        caam_dma_addr_t dma_addr_e,
++                        uint16_t size_e,
++                        caam_dma_addr_t dma_addr_out,
++                        uint16_t *result_size,
++                        pkha_r2_t r2_input,
++                        pkha_f2m_t arith_type,
++                        pkha_timing_t equal_time,
++                        u32 *desc)
++{
++    struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	caam_dma_addr_t dma_addr_a0, dma_addr_a1, dma_addr_a3, dma_addr_b0, dma_addr_b1, dma_addr_out_b1, dma_addr_out_b2;
++	struct pkha_operation_result res = {0};
++	u32 operation = 0;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dma_addr_a0 = dma_addr_a;
++	dma_addr_a1 = dma_addr_a + QUAD1_BYTE_OFFSET;
++	dma_addr_a3 = dma_addr_a + QUAD3_BYTE_OFFSET;
++	dma_addr_b0 = dma_addr_b;
++	dma_addr_b1 = dma_addr_b + QUAD1_BYTE_OFFSET;
++	dma_addr_out_b1 = dma_addr_out;
++	dma_addr_out_b2 = dma_addr_out + QUAD1_BYTE_OFFSET;
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_load(desc, dma_addr_a0,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_a1,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++
++		append_key(desc, dma_addr_e,
++				 size_e, KEY_DEST_PKHA_E | CLASS_1 | (0x1 << KEY_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a0,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0);
++
++		append_fifo_load(desc, dma_addr_a1,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1);
++
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3);
++
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0);
++
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++
++		append_key(desc, dma_addr_e,
++				 size_e, KEY_DEST_PKHA_E | CLASS_1);
++	}
++	
++	if (PKHA_F2M_Arith == arith_type)
++		operation |= OP_ALG_PKMODE_MOD_F2M;
++	if (PKHA_R2_Input == r2_input)
++		operation |= OP_ALG_PKMODE_MOD_R2_IN;
++	if (PKHA_TimingEqualized == equal_time)
++		operation |= OP_ALG_PKMODE_TIME_EQ;
++	
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ECC_MULT | operation);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1 | (0x1 << FIFOST_PKLE_SHIFT));
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2 | (0x1 << FIFOST_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1);
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2);
++	}
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_ecc_mul);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_ecc_mul_is_infinity
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_ecc_mul_is_infinity(caam_dma_addr_t dma_addr_a,
++                        uint16_t size_a,
++                        caam_dma_addr_t dma_addr_b,
++                        uint16_t size_b,
++                        caam_dma_addr_t dma_addr_n,
++                        uint16_t size_n,
++                        caam_dma_addr_t dma_addr_e,
++                        uint16_t size_e,
++                        caam_dma_addr_t dma_addr_out,
++                        uint16_t *result_size,
++                        pkha_r2_t r2_input,
++                        pkha_f2m_t arith_type,
++                        pkha_timing_t equal_time,
++                        u32 *desc)
++{
++    struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	caam_dma_addr_t dma_addr_a0, dma_addr_a1, dma_addr_a3, dma_addr_b0, dma_addr_b1, dma_addr_out_b1, dma_addr_out_b2;
++	struct pkha_operation_result res = {0};
++	u32 operation = 0;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dma_addr_a0 = dma_addr_a;
++	dma_addr_a1 = dma_addr_a + QUAD1_BYTE_OFFSET;
++	dma_addr_a3 = dma_addr_a + QUAD3_BYTE_OFFSET;
++	dma_addr_b0 = dma_addr_b;
++	dma_addr_b1 = dma_addr_b + QUAD1_BYTE_OFFSET;
++	dma_addr_out_b1 = dma_addr_out;
++	dma_addr_out_b2 = dma_addr_out + QUAD1_BYTE_OFFSET;
++
++	init_job_desc(desc, 0);
++
++	if (pk_crypto_ctx->caam_era > 8) {		
++		append_fifo_load(desc, dma_addr_a0,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0 | (0x1 << FIFOLD_PKLE_SHIFT));
++		
++		append_fifo_load(desc, dma_addr_a1,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1 | (0x1 << FIFOLD_PKLE_SHIFT));
++		
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3 | (0x1 << FIFOLD_PKLE_SHIFT));
++		
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0 | (0x1 << FIFOLD_PKLE_SHIFT));
++		
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1 | (0x1 << FIFOLD_PKLE_SHIFT));
++		
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++		
++		append_key(desc, dma_addr_e,
++				 size_e, KEY_DEST_PKHA_E | CLASS_1 | (0x1 << KEY_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_load(desc, dma_addr_a0,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0);
++
++		append_fifo_load(desc, dma_addr_a1,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1);
++
++		append_fifo_load(desc, dma_addr_a3,
++				 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3);
++
++		append_fifo_load(desc, dma_addr_b0,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0);
++
++		append_fifo_load(desc, dma_addr_b1,
++				 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B1);
++
++		append_fifo_load(desc, dma_addr_n,
++				 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N);
++
++		append_key(desc, dma_addr_e,
++				 size_e, KEY_DEST_PKHA_E | CLASS_1);
++	}
++	if (PKHA_F2M_Arith == arith_type)
++		operation |= OP_ALG_PKMODE_MOD_F2M;
++	if (PKHA_R2_Input == r2_input)
++		operation |= OP_ALG_PKMODE_MOD_R2_IN;
++	if (PKHA_TimingEqualized == equal_time)
++		operation |= OP_ALG_PKMODE_TIME_EQ;
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ECC_MULT | operation);
++
++	if (pk_crypto_ctx->caam_era > 8) {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++			  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1 | (0x1 << FIFOST_PKLE_SHIFT));
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2 | (0x1 << FIFOST_PKLE_SHIFT));
++	}
++	else {
++		append_fifo_store(desc, dma_addr_out_b1, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1);
++
++		append_fifo_store(desc, dma_addr_out_b2, size_n,
++				  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B2);
++	}
++    
++	append_cmd(desc, 0xA0C08001); /*jump: halt-user with status=1 when the result is a Point at infinity.*/
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_ecc_mul_is_infinity);
++
++/*FUNCTION**********************************************************************
++ *
++ * Function Name : pkha_ecc_check_point
++ * Description   : 
++ *
++ *END**************************************************************************/
++int pkha_ecc_check_point(caam_dma_addr_t dma_addr_a,
++                        uint16_t size_a,
++                        caam_dma_addr_t dma_addr_b,
++                        uint16_t size_b,
++                        caam_dma_addr_t dma_addr_n,
++                        uint16_t size_n,
++                        caam_dma_addr_t dma_addr_out,
++                        uint16_t *result_size,
++                        pkha_r2_t r2_input,
++                        pkha_f2m_t arith_type,
++                        u32 *desc)
++{
++    struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = -ENOMEM;
++	caam_dma_addr_t dma_addr_a0, dma_addr_a1, dma_addr_a3, dma_addr_b0, dma_addr_out_b1;
++	struct pkha_operation_result res = {0};
++	u32 operation = 0;
++
++	if (pk_crypto_ctx->caam_era <= 8)
++		return 0;
++
++	memset(desc, 0, MAX_CAAM_DESCSIZE * sizeof(u32));
++
++	dma_addr_a0 = dma_addr_a;
++	dma_addr_a1 = dma_addr_a + QUAD1_BYTE_OFFSET;
++	dma_addr_a3 = dma_addr_a + QUAD3_BYTE_OFFSET;
++	dma_addr_b0 = dma_addr_b;
++	dma_addr_out_b1 = dma_addr_out;
++
++	init_job_desc(desc, 0);
++	
++	append_fifo_load(desc, dma_addr_a0,
++			 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++	append_fifo_load(desc, dma_addr_a1,
++			 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A1 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++	append_fifo_load(desc, dma_addr_a3,
++			 size_a, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_A3 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++	append_fifo_load(desc, dma_addr_b0,
++			 size_b, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_B0 | (0x1 << FIFOLD_PKLE_SHIFT));
++
++	append_fifo_load(desc, dma_addr_n,
++			 size_n, LDST_CLASS_1_CCB | FIFOLD_TYPE_PK_N | (0x1 << FIFOLD_PKLE_SHIFT));
++	
++	if (PKHA_F2M_Arith == arith_type)
++		operation |= OP_ALG_PKMODE_MOD_F2M;
++	if (PKHA_R2_Input == r2_input)
++		operation |= OP_ALG_PKMODE_MOD_R2_IN;
++
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ECC_CHECK_POINT | operation);
++
++	append_fifo_store(desc, dma_addr_out_b1, size_n,
++			  LDST_CLASS_1_CCB | FIFOST_TYPE_PKHA_B1 | (0x1 << FIFOST_PKLE_SHIFT));
++	
++	append_cmd(desc, 0xA0C04058); /*jump: halt-user with status = 88 when the point is on the curve (but not point at infinity).*/
++
++	append_cmd(desc, 0xA0C08001); /*jump: halt-user with status = 1 when the input is the point at infinity.*/
++
++	res.err = 0;
++	init_completion(&res.completion);
++
++	ret = caam_jr_enqueue(jrdev, desc, pkha_operation_done, &res);
++	if (ret == -EINPROGRESS) {
++		/* in progress */
++		wait_for_completion_timeout(&res.completion, HZ);
++		ret = res.err;
++	}
++	if (0x58 == ret ) {
++		ret = 0;
++	}
++
++	*result_size = size_n;
++
++	return ret;
++}
++EXPORT_SYMBOL(pkha_ecc_check_point);
++
++////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++int caam_cv2x_verify_init(cv2x_verfiy_t *cv2x_verify)
++{
++	int ret = 0;
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++
++	if (CV2X_NISTP256_VERIFY != cv2x_verify->curve_select && CV2X_BP_P256R1_VERIFY == cv2x_verify->curve_select && CV2X_SM2_VERIFY == cv2x_verify->curve_select)
++		return -ENODEV;
++	if (CV2X_NISTP256_VERIFY == cv2x_verify->curve_select) {
++		u32 *desc = NULL;
++		struct ecdsa_verify_pdb pdb;
++#ifdef PK_DEBUG
++		uint32_t i;
++#endif
++		cv2x_verify->nistp256_verify.l_len = cv2x_verify->nistp256_verify.n_len = 32;
++		cv2x_verify->nistp256_verify.desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++		if (unlikely(!cv2x_verify->nistp256_verify.desc))
++			goto nistp256_desc_alloc_fail;
++
++		desc = cv2x_verify->nistp256_verify.desc;
++
++	    cv2x_verify->nistp256_verify.addr_q = kmalloc((cv2x_verify->nistp256_verify.l_len * 9 + cv2x_verify->nistp256_verify.n_len * 4), GFP_KERNEL | GFP_DMA);
++		if (unlikely(!cv2x_verify->nistp256_verify.addr_q))
++			goto nistp256_q_alloc_fail;		
++
++		memset(cv2x_verify->nistp256_verify.addr_q, 0, (cv2x_verify->nistp256_verify.l_len * 9 + cv2x_verify->nistp256_verify.n_len * 4));
++		cv2x_verify->nistp256_verify.addr_r = cv2x_verify->nistp256_verify.addr_q + cv2x_verify->nistp256_verify.l_len;
++		cv2x_verify->nistp256_verify.addr_g = cv2x_verify->nistp256_verify.addr_r + cv2x_verify->nistp256_verify.n_len;
++		cv2x_verify->nistp256_verify.addr_ab = cv2x_verify->nistp256_verify.addr_g + cv2x_verify->nistp256_verify.l_len * 2;		
++		cv2x_verify->nistp256_verify.addr_w = cv2x_verify->nistp256_verify.addr_ab + cv2x_verify->nistp256_verify.l_len * 2;
++		cv2x_verify->nistp256_verify.addr_f = cv2x_verify->nistp256_verify.addr_w + cv2x_verify->nistp256_verify.l_len * 2;
++		cv2x_verify->nistp256_verify.addr_c = cv2x_verify->nistp256_verify.addr_f + cv2x_verify->nistp256_verify.n_len;
++		cv2x_verify->nistp256_verify.addr_d = cv2x_verify->nistp256_verify.addr_c + cv2x_verify->nistp256_verify.n_len;
++		cv2x_verify->nistp256_verify.addr_tmp = cv2x_verify->nistp256_verify.addr_ab + cv2x_verify->nistp256_verify.n_len;
++
++		cv2x_verify->nistp256_verify.phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, cv2x_verify->nistp256_verify.addr_q, (cv2x_verify->nistp256_verify.l_len * 5 + cv2x_verify->nistp256_verify.n_len), DMA_TO_DEVICE);
++		if (dma_mapping_error(jrdev, cv2x_verify->nistp256_verify.phy_addr_q)) {
++			dev_err(jrdev, "caam_cv2x_verify_init(): can't map phy_addr_q\n");
++			goto nistp256_unmap_q;
++		}
++		cv2x_verify->nistp256_verify.phy_addr_r  = cv2x_verify->nistp256_verify.phy_addr_q + cv2x_verify->nistp256_verify.l_len;
++		cv2x_verify->nistp256_verify.phy_addr_g  = cv2x_verify->nistp256_verify.phy_addr_r + cv2x_verify->nistp256_verify.n_len;
++		cv2x_verify->nistp256_verify.phy_addr_ab  = cv2x_verify->nistp256_verify.phy_addr_g + cv2x_verify->nistp256_verify.l_len * 2;
++		
++		
++		cv2x_verify->nistp256_verify.phy_addr_w = (caam_dma_addr_t)dma_map_single(jrdev, cv2x_verify->nistp256_verify.addr_w, (cv2x_verify->nistp256_verify.l_len * 4 + cv2x_verify->nistp256_verify.n_len * 3), DMA_TO_DEVICE);
++		if (dma_mapping_error(jrdev, cv2x_verify->nistp256_verify.phy_addr_w)) {
++			dev_err(jrdev, "caam_cv2x_verify_init(): can't map phy_addr_w\n");
++			goto nistp256_unmap_w;
++		}
++		cv2x_verify->nistp256_verify.phy_addr_f  = cv2x_verify->nistp256_verify.phy_addr_w + cv2x_verify->nistp256_verify.l_len * 2;
++		cv2x_verify->nistp256_verify.phy_addr_c  = cv2x_verify->nistp256_verify.phy_addr_f + cv2x_verify->nistp256_verify.n_len;
++		cv2x_verify->nistp256_verify.phy_addr_d  = cv2x_verify->nistp256_verify.phy_addr_c + cv2x_verify->nistp256_verify.n_len;
++		cv2x_verify->nistp256_verify.phy_addr_tmp = cv2x_verify->nistp256_verify.phy_addr_d + cv2x_verify->nistp256_verify.n_len;
++
++
++		pdb.sgf_ln = ((cv2x_verify->nistp256_verify.l_len & 0x3ff) << DSA_PDB_L_SHIFT) | ((cv2x_verify->nistp256_verify.n_len & DSA_PDB_N_MASK));
++		pdb.q_dma = cv2x_verify->nistp256_verify.phy_addr_q;
++		pdb.r_dma = cv2x_verify->nistp256_verify.phy_addr_r;
++		pdb.g_dma = cv2x_verify->nistp256_verify.phy_addr_g;
++		pdb.w_dma = cv2x_verify->nistp256_verify.phy_addr_w;
++		pdb.f_dma = cv2x_verify->nistp256_verify.phy_addr_f;
++		pdb.c_dma = cv2x_verify->nistp256_verify.phy_addr_c;
++		pdb.d_dma = cv2x_verify->nistp256_verify.phy_addr_d;
++		pdb.tmp_dma = cv2x_verify->nistp256_verify.phy_addr_tmp;
++		pdb.ab_dma = cv2x_verify->nistp256_verify.phy_addr_ab;
++
++		memcpy(cv2x_verify->nistp256_verify.addr_q, nistp256_curve_parameters, cv2x_verify->nistp256_verify.l_len);
++		memcpy(cv2x_verify->nistp256_verify.addr_r, nistp256_curve_parameters + 32*5, cv2x_verify->nistp256_verify.n_len);
++		memcpy(cv2x_verify->nistp256_verify.addr_g, nistp256_curve_parameters + 32*3, cv2x_verify->nistp256_verify.l_len*2);
++		memcpy(cv2x_verify->nistp256_verify.addr_ab, nistp256_curve_parameters + 32, cv2x_verify->nistp256_verify.l_len*2);
++		cv2x_verify->nistp256_verify.arith_type = PKHA_Integer_Arith;
++
++		init_ecdsa_verify_desc(desc, &pdb, cv2x_verify->nistp256_verify.arith_type);
++
++		dma_sync_single_for_device(pk_crypto_ctx->jrdev, cv2x_verify->nistp256_verify.phy_addr_q, (cv2x_verify->nistp256_verify.l_len * 5 + cv2x_verify->nistp256_verify.n_len), DMA_TO_DEVICE);
++
++#ifdef PK_DEBUG
++		printk("\n ECDSA NIST Verify Job descriptor: ");
++		for (i = 0; i < sizeof(struct ecdsa_verify_pdb) + 2; i++)
++			printk("[%d] %x\t", i, desc[i]);
++		printk("\n");
++#endif
++	
++		return ret;
++nistp256_unmap_w:
++		dma_unmap_single(jrdev, cv2x_verify->nistp256_verify.phy_addr_q, (cv2x_verify->nistp256_verify.l_len * 5 + cv2x_verify->nistp256_verify.n_len), DMA_TO_DEVICE);		
++nistp256_unmap_q:
++		kfree_sensitive(cv2x_verify->nistp256_verify.addr_q);
++nistp256_q_alloc_fail:
++		kfree(cv2x_verify->nistp256_verify.desc);
++nistp256_desc_alloc_fail:
++		return -ENOMEM;
++
++	}
++	else if (CV2X_BP_P256R1_VERIFY == cv2x_verify->curve_select) {
++		u32 *desc = NULL;
++		struct ecdsa_verify_pdb pdb;
++#ifdef PK_DEBUG
++		uint32_t i;
++#endif
++		cv2x_verify->bp256r1_verify.l_len = cv2x_verify->bp256r1_verify.n_len = 32;
++		cv2x_verify->bp256r1_verify.desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++		if (unlikely(!cv2x_verify->bp256r1_verify.desc))
++			goto bp256r1_desc_alloc_fail;
++
++		desc = cv2x_verify->bp256r1_verify.desc;
++
++	    cv2x_verify->bp256r1_verify.addr_q = kmalloc((cv2x_verify->bp256r1_verify.l_len * 9 + cv2x_verify->bp256r1_verify.n_len * 4), GFP_KERNEL | GFP_DMA);
++		if (unlikely(!cv2x_verify->bp256r1_verify.addr_q))
++			goto bp256r1_q_alloc_fail;
++
++		memset(cv2x_verify->bp256r1_verify.addr_q, 0, (cv2x_verify->bp256r1_verify.l_len * 9 + cv2x_verify->bp256r1_verify.n_len * 4));
++		cv2x_verify->bp256r1_verify.addr_r = cv2x_verify->bp256r1_verify.addr_q + cv2x_verify->bp256r1_verify.l_len;
++		cv2x_verify->bp256r1_verify.addr_g = cv2x_verify->bp256r1_verify.addr_r + cv2x_verify->bp256r1_verify.n_len;
++		cv2x_verify->bp256r1_verify.addr_ab = cv2x_verify->bp256r1_verify.addr_g + cv2x_verify->bp256r1_verify.l_len * 2;		
++		cv2x_verify->bp256r1_verify.addr_w = cv2x_verify->bp256r1_verify.addr_ab + cv2x_verify->bp256r1_verify.l_len * 2;
++		cv2x_verify->bp256r1_verify.addr_f = cv2x_verify->bp256r1_verify.addr_w + cv2x_verify->bp256r1_verify.l_len * 2;
++		cv2x_verify->bp256r1_verify.addr_c = cv2x_verify->bp256r1_verify.addr_f + cv2x_verify->bp256r1_verify.n_len;
++		cv2x_verify->bp256r1_verify.addr_d = cv2x_verify->bp256r1_verify.addr_c + cv2x_verify->bp256r1_verify.n_len;
++		cv2x_verify->bp256r1_verify.addr_tmp = cv2x_verify->bp256r1_verify.addr_ab + cv2x_verify->bp256r1_verify.n_len;
++
++		cv2x_verify->bp256r1_verify.phy_addr_q = (caam_dma_addr_t)dma_map_single(jrdev, cv2x_verify->bp256r1_verify.addr_q, (cv2x_verify->bp256r1_verify.l_len * 5 + cv2x_verify->bp256r1_verify.n_len), DMA_TO_DEVICE);
++		if (dma_mapping_error(jrdev, cv2x_verify->bp256r1_verify.phy_addr_q)) {
++			dev_err(jrdev, "caam_cv2x_verify_init(): can't map phy_addr_q\n");
++			goto bp256r1_unmap_q;
++		}
++		cv2x_verify->bp256r1_verify.phy_addr_r  = cv2x_verify->bp256r1_verify.phy_addr_q + cv2x_verify->bp256r1_verify.l_len;
++		cv2x_verify->bp256r1_verify.phy_addr_g  = cv2x_verify->bp256r1_verify.phy_addr_r + cv2x_verify->bp256r1_verify.n_len;
++		cv2x_verify->bp256r1_verify.phy_addr_ab  = cv2x_verify->bp256r1_verify.phy_addr_g + cv2x_verify->bp256r1_verify.l_len * 2;	
++		
++		
++		cv2x_verify->bp256r1_verify.phy_addr_w = (caam_dma_addr_t)dma_map_single(jrdev, cv2x_verify->bp256r1_verify.addr_w, (cv2x_verify->bp256r1_verify.l_len * 4 + cv2x_verify->bp256r1_verify.n_len * 3), DMA_TO_DEVICE);
++		if (dma_mapping_error(jrdev, cv2x_verify->bp256r1_verify.phy_addr_w)) {
++			dev_err(jrdev, "caam_cv2x_verify_init(): can't map phy_addr_w\n");
++			goto bp256r1_unmap_w;
++		}
++		cv2x_verify->bp256r1_verify.phy_addr_f  = cv2x_verify->bp256r1_verify.phy_addr_w + cv2x_verify->bp256r1_verify.l_len * 2;
++		cv2x_verify->bp256r1_verify.phy_addr_c  = cv2x_verify->bp256r1_verify.phy_addr_f + cv2x_verify->bp256r1_verify.n_len;
++		cv2x_verify->bp256r1_verify.phy_addr_d  = cv2x_verify->bp256r1_verify.phy_addr_c + cv2x_verify->bp256r1_verify.n_len;
++		cv2x_verify->bp256r1_verify.phy_addr_tmp = cv2x_verify->bp256r1_verify.phy_addr_d + cv2x_verify->bp256r1_verify.n_len;
++
++
++		pdb.sgf_ln = ((cv2x_verify->bp256r1_verify.l_len & 0x3ff) << DSA_PDB_L_SHIFT) | ((cv2x_verify->bp256r1_verify.n_len & DSA_PDB_N_MASK));
++		pdb.q_dma = cv2x_verify->bp256r1_verify.phy_addr_q;
++		pdb.r_dma = cv2x_verify->bp256r1_verify.phy_addr_r;
++		pdb.g_dma = cv2x_verify->bp256r1_verify.phy_addr_g;
++		pdb.w_dma = cv2x_verify->bp256r1_verify.phy_addr_w;
++		pdb.f_dma = cv2x_verify->bp256r1_verify.phy_addr_f;
++		pdb.c_dma = cv2x_verify->bp256r1_verify.phy_addr_c;
++		pdb.d_dma = cv2x_verify->bp256r1_verify.phy_addr_d;
++		pdb.tmp_dma = cv2x_verify->bp256r1_verify.phy_addr_tmp;
++		pdb.ab_dma = cv2x_verify->bp256r1_verify.phy_addr_ab;
++
++		memcpy(cv2x_verify->bp256r1_verify.addr_q, brainpoolP256r1_curve_parameters, cv2x_verify->bp256r1_verify.l_len);
++		memcpy(cv2x_verify->bp256r1_verify.addr_r, brainpoolP256r1_curve_parameters + 32*5, cv2x_verify->bp256r1_verify.n_len);
++		memcpy(cv2x_verify->bp256r1_verify.addr_g, brainpoolP256r1_curve_parameters + 32*3, cv2x_verify->bp256r1_verify.l_len*2);
++		memcpy(cv2x_verify->bp256r1_verify.addr_ab, brainpoolP256r1_curve_parameters + 32, cv2x_verify->bp256r1_verify.l_len*2);
++		cv2x_verify->bp256r1_verify.arith_type = PKHA_Integer_Arith;
++		
++		init_ecdsa_verify_desc(desc, &pdb, cv2x_verify->bp256r1_verify.arith_type);
++
++		dma_sync_single_for_device(pk_crypto_ctx->jrdev, cv2x_verify->bp256r1_verify.phy_addr_q, (cv2x_verify->bp256r1_verify.l_len * 5 + cv2x_verify->bp256r1_verify.n_len), DMA_TO_DEVICE);
++
++#ifdef PK_DEBUG
++		printk("\n ECDSA BP Verify Job descriptor: ");
++		for (i = 0; i < sizeof(struct ecdsa_verify_pdb) + 2; i++)
++			printk("[%d] %x\t", i, desc[i]);
++		printk("\n");
++#endif
++	
++		return ret;
++		
++bp256r1_unmap_w:
++		dma_unmap_single(jrdev, cv2x_verify->nistp256_verify.phy_addr_q, (cv2x_verify->nistp256_verify.l_len * 5 + cv2x_verify->nistp256_verify.n_len), DMA_TO_DEVICE); 	
++bp256r1_unmap_q:
++		kfree_sensitive(cv2x_verify->nistp256_verify.addr_q);
++bp256r1_q_alloc_fail:
++		kfree(cv2x_verify->nistp256_verify.desc);
++bp256r1_desc_alloc_fail:
++		return -ENOMEM;
++	}
++	else if (CV2X_SM2_VERIFY == cv2x_verify->curve_select) {
++		u32 *desc = NULL;
++#ifdef PK_DEBUG
++		uint32_t i;
++#endif
++		cv2x_verify->pkha_sm2_verify.o_len = 32;	
++		cv2x_verify->pkha_sm2_verify.p_len = 32;	
++		cv2x_verify->pkha_sm2_verify.n_len = 32;	
++		cv2x_verify->pkha_sm2_verify.sm2group_len = sizeof(sm2p256_curve_parameters);
++		cv2x_verify->pkha_sm2_verify.param_len = cv2x_verify->pkha_sm2_verify.n_len*3 + cv2x_verify->pkha_sm2_verify.p_len*2;
++		cv2x_verify->pkha_sm2_verify.desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(u32), GFP_KERNEL | GFP_DMA);
++		if (unlikely(!cv2x_verify->pkha_sm2_verify.desc))
++			goto sm2_desc_alloc_fail;
++
++		desc = cv2x_verify->pkha_sm2_verify.desc;
++
++		cv2x_verify->pkha_sm2_verify.addr_sm2group = kmalloc((cv2x_verify->pkha_sm2_verify.sm2group_len + cv2x_verify->pkha_sm2_verify.param_len + cv2x_verify->pkha_sm2_verify.p_len * 2), GFP_KERNEL | GFP_DMA);
++		if (unlikely(!cv2x_verify->pkha_sm2_verify.addr_sm2group))
++			goto sm2_sm2group_alloc_fail;
++
++		memset(cv2x_verify->pkha_sm2_verify.addr_sm2group, 0, (cv2x_verify->pkha_sm2_verify.sm2group_len + cv2x_verify->pkha_sm2_verify.param_len + cv2x_verify->pkha_sm2_verify.p_len * 2));
++		memcpy(cv2x_verify->pkha_sm2_verify.addr_sm2group, sm2p256_curve_parameters, cv2x_verify->pkha_sm2_verify.sm2group_len);
++		cv2x_verify->pkha_sm2_verify.addr_p = cv2x_verify->pkha_sm2_verify.addr_sm2group;
++		cv2x_verify->pkha_sm2_verify.addr_R2p = cv2x_verify->pkha_sm2_verify.addr_p + cv2x_verify->pkha_sm2_verify.p_len;
++		cv2x_verify->pkha_sm2_verify.addr_a = cv2x_verify->pkha_sm2_verify.addr_R2p + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.addr_b = cv2x_verify->pkha_sm2_verify.addr_a + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.addr_xG = cv2x_verify->pkha_sm2_verify.addr_b + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.addr_yG = cv2x_verify->pkha_sm2_verify.addr_xG + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.addr_n = cv2x_verify->pkha_sm2_verify.addr_yG + cv2x_verify->pkha_sm2_verify.o_len;
++
++		cv2x_verify->pkha_sm2_verify.tmp = cv2x_verify->pkha_sm2_verify.addr_n + cv2x_verify->pkha_sm2_verify.n_len * 2;
++		cv2x_verify->pkha_sm2_verify.addr_tmp1 = cv2x_verify->pkha_sm2_verify.tmp;
++		cv2x_verify->pkha_sm2_verify.addr_tmp2 = cv2x_verify->pkha_sm2_verify.addr_tmp1 + cv2x_verify->pkha_sm2_verify.p_len;
++
++		cv2x_verify->pkha_sm2_verify.addr_param = cv2x_verify->pkha_sm2_verify.addr_tmp2 + cv2x_verify->pkha_sm2_verify.p_len;
++		cv2x_verify->pkha_sm2_verify.addr_r = cv2x_verify->pkha_sm2_verify.addr_param;
++		cv2x_verify->pkha_sm2_verify.addr_s = cv2x_verify->pkha_sm2_verify.addr_r + cv2x_verify->pkha_sm2_verify.p_len;
++		cv2x_verify->pkha_sm2_verify.addr_e = cv2x_verify->pkha_sm2_verify.addr_s + cv2x_verify->pkha_sm2_verify.p_len;
++		cv2x_verify->pkha_sm2_verify.addr_xA = cv2x_verify->pkha_sm2_verify.addr_e + cv2x_verify->pkha_sm2_verify.p_len;
++		cv2x_verify->pkha_sm2_verify.addr_yA = cv2x_verify->pkha_sm2_verify.addr_xA + cv2x_verify->pkha_sm2_verify.p_len;
++
++		
++
++		cv2x_verify->pkha_sm2_verify.phy_addr_sm2group = (caam_dma_addr_t)dma_map_single(jrdev, cv2x_verify->pkha_sm2_verify.addr_sm2group, (cv2x_verify->pkha_sm2_verify.sm2group_len + cv2x_verify->pkha_sm2_verify.p_len * 2), DMA_TO_DEVICE);
++		if (dma_mapping_error(jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_sm2group)) {
++			dev_err(jrdev, "caam_cv2x_verify_init(): can't map phy_addr_sm2group\n");
++			goto sm2_unmap_sm2group;
++		}
++
++		cv2x_verify->pkha_sm2_verify.phy_addr_p = cv2x_verify->pkha_sm2_verify.phy_addr_sm2group;
++		cv2x_verify->pkha_sm2_verify.phy_addr_R2p = cv2x_verify->pkha_sm2_verify.phy_addr_p + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_a = cv2x_verify->pkha_sm2_verify.phy_addr_R2p + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_b = cv2x_verify->pkha_sm2_verify.phy_addr_a + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_xG = cv2x_verify->pkha_sm2_verify.phy_addr_b + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_yG = cv2x_verify->pkha_sm2_verify.phy_addr_xG + cv2x_verify->pkha_sm2_verify.o_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_n = cv2x_verify->pkha_sm2_verify.phy_addr_yG + cv2x_verify->pkha_sm2_verify.o_len;
++
++		cv2x_verify->pkha_sm2_verify.phy_addr_tmp1 = cv2x_verify->pkha_sm2_verify.phy_addr_n + cv2x_verify->pkha_sm2_verify.n_len * 2;
++		cv2x_verify->pkha_sm2_verify.phy_addr_tmp2 = cv2x_verify->pkha_sm2_verify.phy_addr_tmp1 + cv2x_verify->pkha_sm2_verify.p_len;
++
++		cv2x_verify->pkha_sm2_verify.phy_addr_param = (caam_dma_addr_t)dma_map_single(jrdev, cv2x_verify->pkha_sm2_verify.addr_param, cv2x_verify->pkha_sm2_verify.param_len, DMA_TO_DEVICE);
++		if (dma_mapping_error(jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_param)) {
++			dev_err(jrdev, "caam_cv2x_verify_init(): can't map phy_addr_param\n");
++			goto sm2_unmap_param;
++		}
++		cv2x_verify->pkha_sm2_verify.phy_addr_r = cv2x_verify->pkha_sm2_verify.phy_addr_param;
++		cv2x_verify->pkha_sm2_verify.phy_addr_s = cv2x_verify->pkha_sm2_verify.phy_addr_r + cv2x_verify->pkha_sm2_verify.n_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_e = cv2x_verify->pkha_sm2_verify.phy_addr_s + cv2x_verify->pkha_sm2_verify.n_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_xA = cv2x_verify->pkha_sm2_verify.phy_addr_e + cv2x_verify->pkha_sm2_verify.n_len;
++		cv2x_verify->pkha_sm2_verify.phy_addr_yA = cv2x_verify->pkha_sm2_verify.phy_addr_xA + cv2x_verify->pkha_sm2_verify.p_len;
++
++		init_sm2_verify_job_desc(desc, &cv2x_verify->pkha_sm2_verify);
++
++		dma_sync_single_for_device(pk_crypto_ctx->jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_sm2group, cv2x_verify->pkha_sm2_verify.sm2group_len, DMA_TO_DEVICE);		
++
++#ifdef PK_DEBUG
++		printk("\n SM2 Verify Job descriptor: ");
++		for (i = 0; i < MAX_CAAM_DESCSIZE; i++)
++			printk("[%d] %x\t", i, desc[i]);
++		printk("\n");
++#endif
++
++		return ret;
++sm2_unmap_param:
++		dma_unmap_single(jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_sm2group, (cv2x_verify->pkha_sm2_verify.sm2group_len + cv2x_verify->pkha_sm2_verify.p_len * 2), DMA_TO_DEVICE);
++		
++sm2_unmap_sm2group:
++		kfree_sensitive(cv2x_verify->pkha_sm2_verify.addr_sm2group);
++
++sm2_sm2group_alloc_fail:
++		kfree(cv2x_verify->pkha_sm2_verify.desc);
++		
++sm2_desc_alloc_fail:
++		return -ENOMEM;
++	}
++	return ret;
++}
++EXPORT_SYMBOL(caam_cv2x_verify_init);
++
++int caam_cv2x_verify_deinit(cv2x_verfiy_t *cv2x_verify)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++
++	if (CV2X_NISTP256_VERIFY == cv2x_verify->curve_select) {
++		if (cv2x_verify->nistp256_verify.addr_q) {			
++			dma_unmap_single(jrdev, cv2x_verify->nistp256_verify.phy_addr_q, (cv2x_verify->nistp256_verify.l_len * 5 + cv2x_verify->nistp256_verify.n_len), DMA_TO_DEVICE);
++			dma_unmap_single(jrdev, cv2x_verify->nistp256_verify.phy_addr_w, (cv2x_verify->nistp256_verify.l_len * 4 + cv2x_verify->nistp256_verify.n_len * 3), DMA_TO_DEVICE);
++			kfree_sensitive(cv2x_verify->nistp256_verify.addr_q);
++		}
++		if (cv2x_verify->nistp256_verify.desc)
++			kfree(cv2x_verify->nistp256_verify.desc);
++	}
++	else if (CV2X_BP_P256R1_VERIFY == cv2x_verify->curve_select) {
++		if (cv2x_verify->bp256r1_verify.addr_q) {
++			dma_unmap_single(jrdev, cv2x_verify->bp256r1_verify.phy_addr_q, (cv2x_verify->bp256r1_verify.l_len * 5 + cv2x_verify->bp256r1_verify.n_len), DMA_TO_DEVICE);
++			dma_unmap_single(jrdev, cv2x_verify->bp256r1_verify.phy_addr_tmp, (cv2x_verify->bp256r1_verify.l_len * 4 + cv2x_verify->bp256r1_verify.n_len * 3), DMA_TO_DEVICE);
++			kfree_sensitive(cv2x_verify->bp256r1_verify.addr_q);		
++		}
++		if (cv2x_verify->bp256r1_verify.desc)
++			kfree(cv2x_verify->bp256r1_verify.desc);
++	}
++	else if (CV2X_SM2_VERIFY == cv2x_verify->curve_select) {
++		if (cv2x_verify->pkha_sm2_verify.addr_sm2group) {
++			dma_unmap_single(jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_sm2group, (cv2x_verify->pkha_sm2_verify.sm2group_len + cv2x_verify->pkha_sm2_verify.p_len * 2), DMA_TO_DEVICE);
++			dma_unmap_single(jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_param, cv2x_verify->pkha_sm2_verify.param_len, DMA_TO_DEVICE);
++			kfree_sensitive(cv2x_verify->pkha_sm2_verify.addr_sm2group);		
++		}
++		if (cv2x_verify->pkha_sm2_verify.desc)
++			kfree(cv2x_verify->pkha_sm2_verify.desc);
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL(caam_cv2x_verify_deinit);
++
++int caam_cv2x_verify(cv2x_verfiy_t *cv2x_verify)
++{
++	struct device *jrdev = pk_crypto_ctx->jrdev;
++	int ret = 0;
++	struct pk_operation_result res = {0};
++	u32 *desc = NULL;
++	if (CV2X_NISTP256_VERIFY == cv2x_verify->curve_select) {
++		desc = cv2x_verify->nistp256_verify.desc;
++		dma_sync_single_for_device(pk_crypto_ctx->jrdev, cv2x_verify->nistp256_verify.phy_addr_w, (cv2x_verify->nistp256_verify.l_len * 4 + cv2x_verify->nistp256_verify.n_len * 3), DMA_TO_DEVICE);
++
++		res.err = 0;
++		init_completion(&res.completion);
++
++		ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++		if (ret == -EINPROGRESS) {
++			/* in progress */
++			wait_for_completion_timeout(&res.completion, HZ);
++			ret = res.err;
++		}
++
++		if (res.err)
++			ret = false;
++		else
++			ret = true;	
++	
++	}
++	else if (CV2X_BP_P256R1_VERIFY == cv2x_verify->curve_select) {
++		desc = cv2x_verify->bp256r1_verify.desc;
++		dma_sync_single_for_device(pk_crypto_ctx->jrdev, cv2x_verify->bp256r1_verify.phy_addr_w, (cv2x_verify->bp256r1_verify.l_len * 4 + cv2x_verify->bp256r1_verify.n_len * 3), DMA_TO_DEVICE);
++
++		res.err = 0;
++		init_completion(&res.completion);
++
++		ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++		if (ret == -EINPROGRESS) {
++			/* in progress */
++			wait_for_completion_timeout(&res.completion, HZ);
++			ret = res.err;
++		}
++
++		if (res.err)
++			ret = false;
++		else
++			ret = true;	
++	
++	}
++	else if (CV2X_SM2_VERIFY == cv2x_verify->curve_select) {
++		desc = cv2x_verify->pkha_sm2_verify.desc;
++		dma_sync_single_for_device(pk_crypto_ctx->jrdev, cv2x_verify->pkha_sm2_verify.phy_addr_param, cv2x_verify->pkha_sm2_verify.param_len, DMA_TO_DEVICE);
++
++		res.err = 0;
++		init_completion(&res.completion);
++
++		ret = caam_jr_enqueue(jrdev, desc, pk_operation_done, &res);
++		if (ret == -EINPROGRESS) {
++			/* in progress */
++			wait_for_completion_timeout(&res.completion, HZ);
++			ret = res.err;
++		}
++
++		if (res.err)
++			ret = false;
++		else
++			ret = true;	
++	
++	}
++	return ret;
++}
++EXPORT_SYMBOL(caam_cv2x_verify);
++
++struct device *caam_pkha_get_jrdev(void)
++{
++    if (NULL != pk_crypto_ctx) {
++        if (pk_crypto_ctx->jrdev != NULL ) {
++            return pk_crypto_ctx->jrdev;
++        }
++    }
++    return NULL;
++}
++EXPORT_SYMBOL(caam_pkha_get_jrdev);
++
++int caam_pk_status(void)
++{
++	return NULL != pk_crypto_ctx ? 1:0;
++}
++EXPORT_SYMBOL(caam_pk_status);
++
++/* Public Key Cryptography module initialization handler */
++int caam_pkc_init(struct device *ctrldev)
++{
++	struct caam_drv_private *priv = dev_get_drvdata(ctrldev);
++	u32 pk_inst, pkha;
++	int err;
++	struct device *jrdev = NULL;
++	init_done = false;
++
++	/* Determine public key hardware accelerator presence. */
++	if (priv->era < 10) {
++		pk_inst = (rd_reg32(&priv->jr[0]->perfmon.cha_num_ls) &
++			   CHA_ID_LS_PK_MASK) >> CHA_ID_LS_PK_SHIFT;
++	} else {
++		pkha = rd_reg32(&priv->jr[0]->vreg.pkha);
++		pk_inst = pkha & CHA_VER_NUM_MASK;
++
++		/*
++		 * Newer CAAMs support partially disabled functionality. If this is the
++		 * case, the number is non-zero, but this bit is set to indicate that
++		 * no encryption or decryption is supported. Only signing and verifying
++		 * is supported.
++		 */
++		if (pkha & CHA_VER_MISC_PKHA_NO_CRYPT)
++			pk_inst = 0;
++	}
++
++	/* Do not register algorithms if PKHA is not present. */
++	if (!pk_inst)
++		return 0;
++
++	/* allocate zero buffer, used for padding input */
++	zero_buffer = kzalloc(CAAM_RSA_MAX_INPUT_SIZE - 1, GFP_DMA |
++			      GFP_KERNEL);
++	if (!zero_buffer)
++		return -ENOMEM;
++
++	err = crypto_register_akcipher(&caam_rsa.akcipher);
++
++	if (err) {
++		kfree(zero_buffer);
++		dev_warn(ctrldev, "%s alg registration failed\n",
++			 caam_rsa.akcipher.base.cra_driver_name);
++	} else {
++		init_done = true;
++		caam_rsa.registered = true;
++		dev_info(ctrldev, "caam pkc algorithms registered in /proc/crypto\n");
++	}
++
++	jrdev = caam_jr_alloc();
++	if (IS_ERR(jrdev)) {
++		pk_crypto_ctx = NULL;
++		pr_err("Job Ring Device allocation for transform failed\n");
++		return PTR_ERR(jrdev);
++	}
++	pk_crypto_ctx = vmalloc(sizeof(struct caam_pk_ctx));
++	if (NULL != pk_crypto_ctx) {
++		pk_crypto_ctx->jrdev = jrdev;
++		pk_crypto_ctx->caam_era = priv->era;
+ 	}
+ 
+ 	return err;
+diff --git a/drivers/crypto/caam/caampkc.h b/drivers/crypto/caam/caampkc.h
+index cc889a525e2f..83c009c74b4e 100644
+--- a/drivers/crypto/caam/caampkc.h
++++ b/drivers/crypto/caam/caampkc.h
+@@ -13,6 +13,40 @@
+ #include "compat.h"
+ #include "pdb.h"
+ #include <crypto/engine.h>
++#define MAX_KEY_LENGTH          512
++
++#define CLR_MEM_RAMA_MASK       0x8
++#define CLR_MEM_RAMB_MASK       0x4
++#define CLR_MEM_RAME_MASK       0x2
++#define CLR_MEM_RAMN_MASK       0x1
++#define CLR_MEM_RAM_ALL_MASK    0xF
++
++#define CLR_MEM_QUAD0_MASK      0x1
++#define CLR_MEM_QUAD1_MASK      0x2
++#define CLR_MEM_QUAD2_MASK      0x4
++#define CLR_MEM_QUAD3_MASK      0x8
++#define CLR_MEM_QUAD_ALL_MASK   0xF
++
++#define CPY_MEM_A               0x0
++#define CPY_MEM_B               0x1
++#define CPY_MEM_E               0x2         /* source ram can't be set to E */
++#define CPY_MEM_N               0x3
++
++#define CPY_MEM_SEG0            0x0
++#define CPY_MEM_SEG1            0x1
++#define CPY_MEM_SEG2            0x2
++#define CPY_MEM_SEG3            0x3
++
++#define CPY_MEM_NSIZE           0x10
++#define CPY_MEM_SRCSIZE         0x11
++
++#define QUAD_BYTES              72
++#define QUAD0_BYTE_OFFSET       0
++#define QUAD1_BYTE_OFFSET       (QUAD_BYTES * 1)
++#define QUAD2_BYTE_OFFSET       (QUAD_BYTES * 2)
++#define QUAD3_BYTE_OFFSET       (QUAD_BYTES * 3)
++
++#define QUAD_BITS               (QUAD_BYTES * 8)
+ 
+ /**
+  * caam_priv_key_form - CAAM RSA private key representation
+@@ -149,10 +183,379 @@ struct rsa_edesc {
+ 	u32 hw_desc[];
+ };
+ 
++////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++typedef struct {
++    u8 *addr_p;
++    u8 *addr_q;
++    u8 *addr_e;
++    u8 *addr_n;
++    u8 *addr_d;
++    u8 *addr__d;
++    u8 *addr_d1;
++    u8 *addr_d2;    
++    u8 *addr_c;
++    caam_dma_addr_t phy_addr_p;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_e;
++    caam_dma_addr_t phy_addr_n;
++    caam_dma_addr_t phy_addr_d;
++    caam_dma_addr_t phy_addr__d;
++    caam_dma_addr_t phy_addr_d1;
++    caam_dma_addr_t phy_addr_d2;
++    caam_dma_addr_t phy_addr_c;
++    uint32_t n_len;
++    uint32_t e_len;
++    uint32_t p_len;
++    u32 *desc;
++}pk_rsa_keygen_t;
++
++typedef struct {
++    u8 *addr_n;
++    u8 *addr_e;
++    u8 *addr_f;
++    u8 *addr_g;
++    caam_dma_addr_t phy_addr_n;
++    caam_dma_addr_t phy_addr_e;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_g;
++    uint32_t n_len;
++    uint32_t e_len;
++    uint32_t f_len;
++    uint32_t g_len;
++    u32 *desc;
++}pk_rsa_enc_t;
++
++typedef struct {
++    u8 *addr_n;
++    u8 *addr_d;
++    u8 *addr_f;
++    u8 *addr_g;
++    caam_dma_addr_t phy_addr_n;
++    caam_dma_addr_t phy_addr_d;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_g;
++    uint32_t n_len;
++    uint32_t d_len;
++    uint32_t f_len;
++    uint32_t g_len;
++    u32 *desc;
++}pk_rsa_dec_f1_t;
++
++typedef struct {
++    u8 *addr_p;
++    u8 *addr_q;
++    u8 *addr_d;
++    u8 *addr_f;
++    u8 *addr_g;
++    u8 *addr_tmp1;
++    u8 *addr_tmp2;
++    caam_dma_addr_t phy_addr_p;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_d;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_tmp1;
++    caam_dma_addr_t phy_addr_tmp2;
++    uint32_t n_len;
++    uint32_t d_len;
++    uint32_t p_len;
++    uint32_t q_len;
++    uint32_t f_len;
++    uint32_t g_len;
++    u32 *desc;
++}pk_rsa_dec_f2_t;
++
++typedef struct {
++    u8 *addr_p;
++    u8 *addr_q;
++    u8 *addr_c;
++    u8 *addr_dp;
++    u8 *addr_dq;
++    u8 *addr_f;
++    u8 *addr_g;
++    u8 *addr_tmp1;
++    u8 *addr_tmp2;
++    caam_dma_addr_t phy_addr_p;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_c;
++    caam_dma_addr_t phy_addr_dp;
++    caam_dma_addr_t phy_addr_dq;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_tmp1;
++    caam_dma_addr_t phy_addr_tmp2;
++    uint32_t n_len;
++    uint32_t p_len;
++    uint32_t q_len;
++    uint32_t f_len;
++    uint32_t g_len;
++    u32 *desc;
++}pk_rsa_dec_f3_t;
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_r;
++    u8 *addr_g;
++    u8 *addr_s;
++    u8 *addr_w;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_r;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_s;
++    caam_dma_addr_t phy_addr_w;
++    uint32_t l_len;
++    uint32_t n_len;
++    u32 *desc;
++}pk_dh_keygen_t;
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_r;
++    u8 *addr_g;
++    u8 *addr_s;
++    u8 *addr_w;
++    u8 *addr_ab;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_r;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_s;
++    caam_dma_addr_t phy_addr_w;
++    caam_dma_addr_t phy_addr_ab;
++    uint32_t l_len;
++    uint32_t n_len;
++    int arith_type;
++    u32 *desc;
++}pk_ecdh_keygen_t;
++
++typedef struct {
++    u8 *addr_q; 
++    u8 *addr_s;
++    u8 *addr_z;
++    u8 *addr_w;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_s;
++    caam_dma_addr_t phy_addr_z;
++    caam_dma_addr_t phy_addr_w;
++    uint32_t l_len;
++    uint32_t n_len;
++    u32 *desc;
++}pk_dh_t;
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_s;
++    u8 *addr_z;
++    u8 *addr_w;
++    u8 *addr_ab;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_s;
++    caam_dma_addr_t phy_addr_w;
++    caam_dma_addr_t phy_addr_z;
++    caam_dma_addr_t phy_addr_ab;
++    uint32_t l_len;
++    uint32_t n_len;
++    int arith_type;
++    u32 *desc;
++}pk_ecdh_t;
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_r;
++    u8 *addr_g;
++    u8 *addr_s;
++    u8 *addr_f;
++    u8 *addr_c;
++    u8 *addr_d;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_r;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_s;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_c;
++    caam_dma_addr_t phy_addr_d;
++    uint32_t l_len;
++    uint32_t n_len;
++    u32 *desc;
++}pk_dsa_sign_t;
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_r;
++    u8 *addr_g;
++    u8 *addr_w;
++    u8 *addr_f;
++    u8 *addr_c;
++    u8 *addr_d;
++    u8 *addr_tmp;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_r;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_w;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_c;
++    caam_dma_addr_t phy_addr_d;
++    caam_dma_addr_t phy_addr_tmp;
++    uint32_t l_len;
++    uint32_t n_len;
++    u32 *desc;
++}pk_dsa_verify_t;
++
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_r;
++    u8 *addr_g;
++    u8 *addr_s;
++    u8 *addr_f;
++    u8 *addr_c;
++    u8 *addr_d;
++    u8 *addr_ab;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_r;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_s;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_c;
++    caam_dma_addr_t phy_addr_d;
++    caam_dma_addr_t phy_addr_ab;
++    uint32_t l_len;
++    uint32_t n_len;
++    int arith_type;
++    u32 *desc;
++}pk_ecdsa_sign_t;
++
++typedef struct {
++    u8 *addr_q;
++    u8 *addr_r;
++    u8 *addr_g;
++    u8 *addr_w;
++    u8 *addr_f;
++    u8 *addr_c;
++    u8 *addr_d;
++    u8 *addr_tmp;
++    u8 *addr_ab;
++    caam_dma_addr_t phy_addr_q;
++    caam_dma_addr_t phy_addr_r;
++    caam_dma_addr_t phy_addr_g;
++    caam_dma_addr_t phy_addr_w;
++    caam_dma_addr_t phy_addr_f;
++    caam_dma_addr_t phy_addr_c;
++    caam_dma_addr_t phy_addr_d;
++    caam_dma_addr_t phy_addr_tmp;
++    caam_dma_addr_t phy_addr_ab;
++    uint32_t l_len;
++    uint32_t n_len;
++    int arith_type;
++    u32 *desc;
++}pk_ecdsa_verify_t;
++
++enum curve_select {
++    P256 = 0x3,
++    P384 = 0x4,
++    P521 = 0x5
++};
++
++typedef struct {
++    u8 *addr_m;
++    u8 *addr_mes_rep;
++    u8 *addr_c;
++    u8 *addr_d;
++    caam_dma_addr_t phy_addr_m;
++    caam_dma_addr_t phy_addr_mes_rep;
++    caam_dma_addr_t phy_addr_c;
++    caam_dma_addr_t phy_addr_d;
++    uint32_t m_len;
++    int curve_select;
++    u32 *desc;
++} mp_sign_t;
++
++typedef struct {
++    u8 *addr_w;
++    caam_dma_addr_t phy_addr_w;
++    int curve_select;
++    u32 *desc;
++} mp_pubk_t;
++
++typedef struct {
++    u8 *addr_w;
++    u8 *addr_z;
++    caam_dma_addr_t phy_addr_w;
++    caam_dma_addr_t phy_addr_z;
++    int curve_select;
++    u32 *desc;
++} mp_ecdh_t;
++
++
++typedef int pkha_montgomery_form_t;
++typedef int pkha_f2m_t;
++typedef int pkha_r2_t;
++typedef int pkha_timing_t;
++
++typedef struct {
++    u8 *addr_a;
++    u8 *addr_b;
++    u8 *addr_n;
++    u8 *addr_e;
++    u8 *addr_result;
++    caam_dma_addr_t phy_addr_a;
++    caam_dma_addr_t phy_addr_b;
++    caam_dma_addr_t phy_addr_n;
++    caam_dma_addr_t phy_addr_e;
++    caam_dma_addr_t phy_addr_result;
++} pkha_addr_t;
++
++typedef struct {
++    u32 o_len;
++    u32 p_len;
++    u32 n_len;
++    u8 *addr_sm2group;
++    u8 *addr_xA, *addr_yA;
++    u8 *addr_e, *addr_r,  *addr_s;
++    u8 *addr_tmp1, *addr_tmp2;
++    u8 *addr_param, *tmp;
++    u8 *addr_p, *addr_R2p,*addr_a,*addr_b,*addr_xG,*addr_yG,*addr_n;
++    u32 sm2group_len;
++    caam_dma_addr_t phy_addr_tmp1, phy_addr_tmp2;
++    caam_dma_addr_t phy_addr_sm2group, phy_addr_param;
++    caam_dma_addr_t phy_addr_e, phy_addr_r, phy_addr_s;
++    caam_dma_addr_t phy_addr_xA, phy_addr_yA;
++    caam_dma_addr_t phy_addr_p, phy_addr_R2p, phy_addr_a, phy_addr_b ,phy_addr_xG, phy_addr_yG, phy_addr_n;
++    u32 param_len;  
++    u32 *desc;
++}pkha_sm2_verify_t;
++
++enum cv2x_curve_select {
++    CV2X_NISTP256_VERIFY = 313,
++    CV2X_BP_P256R1_VERIFY = 314,
++    CV2X_SM2_VERIFY = 315
++};
++
++typedef struct {
++    int curve_select;
++    union {
++        pk_ecdsa_verify_t nistp256_verify;
++        pk_ecdsa_verify_t bp256r1_verify;       
++        pkha_sm2_verify_t pkha_sm2_verify;
++    };
++} cv2x_verfiy_t;
++
+ /* Descriptor construction primitives. */
+ void init_rsa_pub_desc(u32 *desc, struct rsa_pub_pdb *pdb);
+ void init_rsa_priv_f1_desc(u32 *desc, struct rsa_priv_f1_pdb *pdb);
+ void init_rsa_priv_f2_desc(u32 *desc, struct rsa_priv_f2_pdb *pdb);
+ void init_rsa_priv_f3_desc(u32 *desc, struct rsa_priv_f3_pdb *pdb);
++void init_rsa_keygen_desc(u32 *desc, struct rsa_fkg_pdb *pdb);
++void init_dh_keygen_desc(u32 *desc, struct dh_keygen_pdb *pdb);
++void init_ecdh_keygen_desc(u32 *desc, struct ecdh_keygen_pdb *pdb, int arith_type);
++void init_dh_desc(u32 *desc, struct dh_pdb *pdb);
++void init_ecdh_desc(u32 *desc, struct ecdh_pdb *pdb, int arith_type);
++void init_dsa_sign_desc(u32 *desc, struct dsa_sign_pdb *pdb);
++void init_dsa_verify_desc(u32 *desc, struct dsa_verify_pdb *pdb);
++void init_ecdsa_sign_desc(u32 *desc, struct ecdsa_sign_pdb *pdb, int arith_type);
++void init_ecdsa_verify_desc(u32 *desc, struct ecdsa_verify_pdb *pdb, int arith_type);
++void init_manufacturing_protection_sign_desc(u32 *desc, struct mp_sign_pdb *pdb);
++void init_manufacturing_protection_pubk_gen_desc(u32 *desc, struct mp_pubk_gen_pdb *pdb);
++void init_manufacturing_protection_ecdh_desc(u32 *desc, struct mp_ecdh_pdb *pdb);
++void init_sm2_verify_job_desc(u32 *desc, pkha_sm2_verify_t *pkha_sm2_verify);
+ 
+ #endif
+diff --git a/drivers/crypto/caam/desc.h b/drivers/crypto/caam/desc.h
+index c2c58f818510..e8e99ca68458 100644
+--- a/drivers/crypto/caam/desc.h
++++ b/drivers/crypto/caam/desc.h
+@@ -139,7 +139,9 @@
+ 
+ /* Key Destination Class: 01 = Class 1, 02 - Class 2 */
+ #define KEY_DEST_CLASS_SHIFT	25	/* use CLASS_1 or CLASS_2 */
+-#define KEY_DEST_CLASS_MASK	(0x03 << KEY_DEST_CLASS_SHIFT)
++#define KEY_DEST_CLASS_MASK	    (0x03 << KEY_DEST_CLASS_SHIFT)
++#define KEY_DEST_CLASS1         (1 << KEY_DEST_CLASS_SHIFT)
++#define KEY_DEST_CLASS2         (2 << KEY_DEST_CLASS_SHIFT)
+ 
+ /* Scatter-Gather Table/Variable Length Field */
+ #define KEY_SGF			0x01000000
+@@ -183,6 +185,9 @@
+ #define KEY_DEST_AFHA_SBOX	(0x02 << KEY_DEST_SHIFT)
+ #define KEY_DEST_MDHA_SPLIT	(0x03 << KEY_DEST_SHIFT)
+ 
++/* PKHA Little Endian.*/
++#define KEY_PKLE_SHIFT  13
++
+ /* Length in bytes */
+ #define KEY_LENGTH_MASK		0x000003ff
+ 
+@@ -367,6 +372,8 @@
+ #define FIFOLD_TYPE_PK_A	(0x0c << FIFOLD_TYPE_SHIFT)
+ #define FIFOLD_TYPE_PK_B	(0x0d << FIFOLD_TYPE_SHIFT)
+ #define FIFOLD_TYPE_IFIFO	(0x0f << FIFOLD_TYPE_SHIFT)
++/* PKHA Little Endian.*/
++#define FIFOLD_PKLE_SHIFT   15
+ 
+ /* Other types. Need to OR in last/flush bits as desired */
+ #define FIFOLD_TYPE_MSG_MASK	(0x38 << FIFOLD_TYPE_SHIFT)
+@@ -427,6 +434,9 @@
+ #define FIFOST_TYPE_METADATA	 (0x3e << FIFOST_TYPE_SHIFT)
+ #define FIFOST_TYPE_SKIP	 (0x3f << FIFOST_TYPE_SHIFT)
+ 
++/* PKHA Little Endian.*/
++#define FIFOST_PKLE_SHIFT   15
++
+ /*
+  * OPERATION Command Constructs
+  */
+@@ -459,6 +469,7 @@
+ #define OP_PCLID_PUBLICKEYPAIR	(0x14 << OP_PCLID_SHIFT)
+ #define OP_PCLID_DSASIGN	(0x15 << OP_PCLID_SHIFT)
+ #define OP_PCLID_DSAVERIFY	(0x16 << OP_PCLID_SHIFT)
++#define OP_PCLID_DH         (0x17 << OP_PCLID_SHIFT)
+ #define OP_PCLID_RSAENC_PUBKEY  (0x18 << OP_PCLID_SHIFT)
+ #define OP_PCLID_RSADEC_PRVKEY  (0x19 << OP_PCLID_SHIFT)
+ #define OP_PCLID_DKP_MD5	(0x20 << OP_PCLID_SHIFT)
+@@ -473,6 +484,7 @@
+ #define OP_PCLID_DKP_RIF_SHA256	(0x63 << OP_PCLID_SHIFT)
+ #define OP_PCLID_DKP_RIF_SHA384	(0x64 << OP_PCLID_SHIFT)
+ #define OP_PCLID_DKP_RIF_SHA512	(0x65 << OP_PCLID_SHIFT)
++#define OP_PCLID_RSA_FINISH_KEYGEN  (0x1A << OP_PCLID_SHIFT)
+ 
+ /* Assuming OP_TYPE = OP_TYPE_DECAP_PROTOCOL/ENCAP_PROTOCOL */
+ #define OP_PCLID_IPSEC		(0x01 << OP_PCLID_SHIFT)
+@@ -1297,6 +1309,55 @@
+ #define OP_ALG_PKMODE_N_RAM	0x10000
+ #define OP_ALG_PKMODE_CLEARMEM	0x00001
+ 
++/* PKHA mode clear memory functions */
++#define OP_ALG_PKMODE_CLEARMEM_ALL  (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_B_RAM | \
++                     OP_ALG_PKMODE_N_RAM | \
++                     OP_ALG_PKMODE_E_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_ABE  (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_B_RAM | \
++                     OP_ALG_PKMODE_E_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_ABN  (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_B_RAM | \
++                     OP_ALG_PKMODE_N_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_AB   (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_B_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_AEN  (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_E_RAM | \
++                     OP_ALG_PKMODE_N_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_AE   (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_E_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_AN   (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM | \
++                     OP_ALG_PKMODE_N_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_A    (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_A_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_BEN  (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_B_RAM | \
++                     OP_ALG_PKMODE_E_RAM | \
++                     OP_ALG_PKMODE_N_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_BE   (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_B_RAM | \
++                     OP_ALG_PKMODE_E_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_BN   (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_B_RAM | \
++                     OP_ALG_PKMODE_N_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_B    (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_B_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_EN   (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_E_RAM | \
++                     OP_ALG_PKMODE_N_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_E    (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_E_RAM)
++#define OP_ALG_PKMODE_CLEARMEM_N    (OP_ALG_PKMODE_CLEARMEM | \
++                     OP_ALG_PKMODE_N_RAM)
++
+ /* PKHA mode modular-arithmetic functions */
+ #define OP_ALG_PKMODE_MOD_IN_MONTY	0x80000
+ #define OP_ALG_PKMODE_MOD_OUT_MONTY	0x40000
+@@ -1306,11 +1367,23 @@
+ #define OP_ALG_PKMODE_TIME_EQ		0x400
+ #define OP_ALG_PKMODE_OUT_B		0x000
+ #define OP_ALG_PKMODE_OUT_A		0x100
++
++/*
++ * PKHA mode modular-arithmetic integer functions
++ * Can be ORed with OP_ALG_PKMODE_OUT_A to change destination from B
++ */
+ #define OP_ALG_PKMODE_MOD_ADD		0x002
+ #define OP_ALG_PKMODE_MOD_SUB_AB	0x003
+ #define OP_ALG_PKMODE_MOD_SUB_BA	0x004
+ #define OP_ALG_PKMODE_MOD_MULT		0x005
++#define OP_ALG_PKMODE_MOD_MULT_IM    (0x005 | OP_ALG_PKMODE_MOD_IN_MONTY)
++#define OP_ALG_PKMODE_MOD_MULT_IM_OM (0x005 | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_MOD_OUT_MONTY)
+ #define OP_ALG_PKMODE_MOD_EXPO		0x006
++#define OP_ALG_PKMODE_MOD_EXPO_TEQ   (0x006 | OP_ALG_PKMODE_TIME_EQ)
++#define OP_ALG_PKMODE_MOD_EXPO_IM    (0x006 | OP_ALG_PKMODE_MOD_IN_MONTY)
++#define OP_ALG_PKMODE_MOD_EXPO_IM_TEQ (0x006 | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_TIME_EQ)
+ #define OP_ALG_PKMODE_MOD_REDUCT	0x007
+ #define OP_ALG_PKMODE_MOD_INV		0x008
+ #define OP_ALG_PKMODE_MOD_ECC_ADD	0x009
+@@ -1320,6 +1393,96 @@
+ #define OP_ALG_PKMODE_MOD_CRT_CNST	0x00d
+ #define OP_ALG_PKMODE_MOD_GCD		0x00e
+ #define OP_ALG_PKMODE_MOD_PRIMALITY	0x00f
++#define OP_ALG_PKMODE_MOD_SML_EXP    0x016
++#define OP_ALG_PKMODE_MOD_ECC_CHECK_POINT   0x01c
++
++/*
++ * PKHA mode modular-arithmetic F2m functions
++ * Can be ORed with OP_ALG_PKMODE_OUT_A to change destination from B
++ */
++#define OP_ALG_PKMODE_F2M_ADD        (0x002 | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_MUL        (0x005 | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_MUL_IM     (0x005 | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_IN_MONTY)
++#define OP_ALG_PKMODE_F2M_MUL_IM_OM  (0x005 | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_MOD_OUT_MONTY)
++#define OP_ALG_PKMODE_F2M_EXP        (0x006 | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_EXP_TEQ    (0x006 | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_TIME_EQ)
++#define OP_ALG_PKMODE_F2M_AMODN      (0x007 | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_INV        (0x008 | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_R2         (0x00c | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_GCD        (0x00e | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_F2M_SML_EXP    (0x016 | OP_ALG_PKMODE_MOD_F2M)
++
++/*
++ * PKHA mode ECC Integer arithmetic functions
++ * Can be ORed with OP_ALG_PKMODE_OUT_A to change destination from B
++ */
++#define OP_ALG_PKMODE_ECC_MOD_ADD    0x009
++/*Added*/
++#define OP_ALG_PKMODE_ECC_MOD_ADD_R2    (0x009 | OP_ALG_PKMODE_MOD_R2_IN) 
++
++#define OP_ALG_PKMODE_ECC_MOD_ADD_IM_OM_PROJ \
++                     (0x009 | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_MOD_OUT_MONTY \
++                        | OP_ALG_PKMODE_PRJECTV)
++#define OP_ALG_PKMODE_ECC_MOD_DBL    0x00a
++#define OP_ALG_PKMODE_ECC_MOD_DBL_IM_OM_PROJ \
++                     (0x00a | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_MOD_OUT_MONTY \
++                        | OP_ALG_PKMODE_PRJECTV)
++#define OP_ALG_PKMODE_ECC_MOD_MUL    0x00b
++#define OP_ALG_PKMODE_ECC_MOD_MUL_TEQ (0x00b | OP_ALG_PKMODE_TIME_EQ)
++#define OP_ALG_PKMODE_ECC_MOD_MUL_R2  (0x00b | OP_ALG_PKMODE_MOD_R2_IN)
++#define OP_ALG_PKMODE_ECC_MOD_MUL_R2_TEQ \
++                     (0x00b | OP_ALG_PKMODE_MOD_R2_IN \
++                        | OP_ALG_PKMODE_TIME_EQ)
++#define OP_ALG_PKMODE_ECC_MOD_MUL_R2_PROJ \
++                     (0x00b | OP_ALG_PKMODE_MOD_R2_IN \
++                        | OP_ALG_PKMODE_PRJECTV)
++#define OP_ALG_PKMODE_ECC_MOD_MUL_R2_PROJ_TEQ \
++                     (0x00b | OP_ALG_PKMODE_MOD_R2_IN \
++                        | OP_ALG_PKMODE_PRJECTV \
++                        | OP_ALG_PKMODE_TIME_EQ)
++
++/*
++ * PKHA mode ECC F2m arithmetic functions
++ * Can be ORed with OP_ALG_PKMODE_OUT_A to change destination from B
++ */
++#define OP_ALG_PKMODE_ECC_F2M_ADD    (0x009 | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_ECC_F2M_ADD_IM_OM_PROJ \
++                     (0x009 | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_MOD_OUT_MONTY \
++                        | OP_ALG_PKMODE_PRJECTV)
++#define OP_ALG_PKMODE_ECC_F2M_DBL    (0x00a | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_ECC_F2M_DBL_IM_OM_PROJ \
++                     (0x00a | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_IN_MONTY \
++                        | OP_ALG_PKMODE_MOD_OUT_MONTY \
++                        | OP_ALG_PKMODE_PRJECTV)
++#define OP_ALG_PKMODE_ECC_F2M_MUL    (0x00b | OP_ALG_PKMODE_MOD_F2M)
++#define OP_ALG_PKMODE_ECC_F2M_MUL_TEQ \
++                     (0x00b | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_TIME_EQ)
++#define OP_ALG_PKMODE_ECC_F2M_MUL_R2 \
++                     (0x00b | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_R2_IN)
++#define OP_ALG_PKMODE_ECC_F2M_MUL_R2_TEQ \
++                     (0x00b | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_R2_IN \
++                        | OP_ALG_PKMODE_TIME_EQ)
++#define OP_ALG_PKMODE_ECC_F2M_MUL_R2_PROJ \
++                     (0x00b | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_R2_IN \
++                        | OP_ALG_PKMODE_PRJECTV)
++#define OP_ALG_PKMODE_ECC_F2M_MUL_R2_PROJ_TEQ \
++                     (0x00b | OP_ALG_PKMODE_MOD_F2M \
++                        | OP_ALG_PKMODE_MOD_R2_IN \
++                        | OP_ALG_PKMODE_PRJECTV \
++                        | OP_ALG_PKMODE_TIME_EQ)
+ 
+ /* PKHA mode copy-memory functions */
+ #define OP_ALG_PKMODE_SRC_REG_SHIFT	17
+@@ -1349,6 +1512,188 @@
+ #define OP_ALG_PKMODE_CPYMEM_N_SZ	0x80
+ #define OP_ALG_PKMODE_CPYMEM_SRC_SZ	0x81
+ 
++/* PKHA mode copy-memory functions - amount based on SRC SIZE */
++#define OP_ALG_PKMODE_COPY_SSZ      0x11
++#define OP_ALG_PKMODE_COPY_SSZ_A0_B0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_B)
++#define OP_ALG_PKMODE_COPY_SSZ_A0_B1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_A0_B2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_A0_B3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_A1_B0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_B)
++#define OP_ALG_PKMODE_COPY_SSZ_A1_B1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_A1_B2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_A1_B3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_A2_B0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_B)
++#define OP_ALG_PKMODE_COPY_SSZ_A2_B1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_A2_B2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_A2_B3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_A3_B0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_B)
++#define OP_ALG_PKMODE_COPY_SSZ_A3_B1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_A3_B2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_A3_B3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_B | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_B0_A0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_A)
++#define OP_ALG_PKMODE_COPY_SSZ_B0_A1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_B0_A2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_B0_A3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_B1_A0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_A)
++#define OP_ALG_PKMODE_COPY_SSZ_B1_A1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_B1_A2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_B1_A3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_1 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_B2_A0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_A)
++#define OP_ALG_PKMODE_COPY_SSZ_B2_A1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_B2_A2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_B2_A3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_2 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_B3_A0    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_A)
++#define OP_ALG_PKMODE_COPY_SSZ_B3_A1    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_1)
++#define OP_ALG_PKMODE_COPY_SSZ_B3_A2    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_2)
++#define OP_ALG_PKMODE_COPY_SSZ_B3_A3    (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_SRC_SEG_3 | \
++                     OP_ALG_PKMODE_DST_REG_A | \
++                     OP_ALG_PKMODE_DST_SEG_3)
++
++#define OP_ALG_PKMODE_COPY_SSZ_A_B  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_B)
++#define OP_ALG_PKMODE_COPY_SSZ_A_E  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_E)
++#define OP_ALG_PKMODE_COPY_SSZ_A_N  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_A | \
++                     OP_ALG_PKMODE_DST_REG_N)
++#define OP_ALG_PKMODE_COPY_SSZ_B_A  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_A)
++#define OP_ALG_PKMODE_COPY_SSZ_B_E  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_E)
++#define OP_ALG_PKMODE_COPY_SSZ_B_N  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_B | \
++                     OP_ALG_PKMODE_DST_REG_N)
++#define OP_ALG_PKMODE_COPY_SSZ_N_A  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_N | \
++                     OP_ALG_PKMODE_DST_REG_A)
++#define OP_ALG_PKMODE_COPY_SSZ_N_B  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_N | \
++                     OP_ALG_PKMODE_DST_REG_B)
++#define OP_ALG_PKMODE_COPY_SSZ_N_E  (OP_ALG_PKMODE_COPY_SSZ | \
++                     OP_ALG_PKMODE_SRC_REG_N | \
++                     OP_ALG_PKMODE_DST_REG_E)
++
+ /*
+  * SEQ_IN_PTR Command Constructs
+  */
+diff --git a/drivers/crypto/caam/desc_constr.h b/drivers/crypto/caam/desc_constr.h
+index f98dec8f2592..baf81d8e260f 100644
+--- a/drivers/crypto/caam/desc_constr.h
++++ b/drivers/crypto/caam/desc_constr.h
+@@ -126,6 +126,13 @@ static inline void init_job_desc(u32 * const desc, u32 options)
+ 	init_desc(desc, CMD_DESC_HDR | options);
+ }
+ 
++static inline void init_job_desc_sm2(u32 * const desc, u32 options)
++{
++
++	init_job_desc(desc, ((0 << HDR_START_IDX_SHIFT) & HDR_START_IDX_MASK) | options);
++
++}
++
+ static inline void init_job_desc_pdb(u32 * const desc, u32 options,
+ 				     size_t pdb_bytes)
+ {
+diff --git a/drivers/crypto/caam/pdb.h b/drivers/crypto/caam/pdb.h
+index 8ccc22075043..b409d8e688d7 100644
+--- a/drivers/crypto/caam/pdb.h
++++ b/drivers/crypto/caam/pdb.h
+@@ -9,6 +9,7 @@
+ #ifndef CAAM_PDB_H
+ #define CAAM_PDB_H
+ #include "compat.h"
++#include "regs.h"
+ 
+ /*
+  * PDB- IPSec ESP Header Modification Options
+@@ -452,31 +453,138 @@ struct srtp_decap_pdb {
+ 
+ #define DSA_PDB_N_MASK		0x7f
+ 
+-struct dsa_sign_pdb {
+-	u32 sgf_ln; /* Use DSA_PDB_ definitions per above */
+-	u8 *q;
+-	u8 *r;
+-	u8 *g;	/* or Gx,y */
+-	u8 *s;
+-	u8 *f;
+-	u8 *c;
+-	u8 *d;
+-	u8 *ab; /* ECC only */
+-	u8 *u;
++enum pkha_montgomery_form {
++	PKHA_NormalValue = 0,
++	PKHA_MontgomeryFormat = 1,
++};
++
++enum pkha_f2m {
++	PKHA_Integer_Arith = 0,
++	PKHA_F2M_Arith = 1,
++};
++
++enum pkha_timing {
++	PKHA_NoTimingEqualized = 0,
++	PKHA_TimingEqualized = 1,
+ };
+ 
++enum pkha_r2 {
++	PKHA_R2_Calculated = 0,
++	PKHA_R2_Input = 1,
++};
++
++struct dsa_sign_pdb {
++	u32 sgf_ln; /* Use DSA_PDB_ defintions per above */
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma;
++	caam_dma_addr_t g_dma; /* or Gx,y */
++	caam_dma_addr_t s_dma;
++	caam_dma_addr_t f_dma;
++	caam_dma_addr_t c_dma;
++	caam_dma_addr_t d_dma;
++}__packed;
++
+ struct dsa_verify_pdb {
+ 	u32 sgf_ln;
+-	u8 *q;
+-	u8 *r;
+-	u8 *g;	/* or Gx,y */
+-	u8 *w; /* or Wx,y */
+-	u8 *f;
+-	u8 *c;
+-	u8 *d;
+-	u8 *tmp; /* temporary data block */
+-	u8 *ab; /* only used if ECC processing */
+-};
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma;
++	caam_dma_addr_t g_dma; /* or Gx,y */
++	caam_dma_addr_t w_dma; /* or Wx,y */
++	caam_dma_addr_t f_dma;
++	caam_dma_addr_t c_dma;
++	caam_dma_addr_t d_dma;
++	caam_dma_addr_t tmp_dma; /* temporary data block */
++}__packed;
++
++struct ecdsa_sign_pdb {
++	u32 sgf_ln; /* Use ECDSA_PDB_ definitions per above */
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma;
++	caam_dma_addr_t g_dma; /* or Gx,y */
++	caam_dma_addr_t s_dma;
++	caam_dma_addr_t f_dma;
++	caam_dma_addr_t c_dma;
++	caam_dma_addr_t d_dma;
++	caam_dma_addr_t ab_dma;
++} __packed;
++
++struct ecdsa_verify_pdb {
++	u32 sgf_ln;
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma;
++	caam_dma_addr_t g_dma; /* or Gx,y */
++	caam_dma_addr_t w_dma; /* or Wx,y */
++	caam_dma_addr_t f_dma;
++	caam_dma_addr_t c_dma;
++	caam_dma_addr_t d_dma;
++	caam_dma_addr_t tmp_dma; /* temporary data block */
++	caam_dma_addr_t ab_dma;
++} __packed;
++
++#define GEN_PDB_SGF_SHIFT		26
++#define GEN_PDB_SGF_MASK			(0xfc << GEN_PDB_SGF_SHIFT)
++#define GEN_PDB_SGF_Q			(0x80 << GEN_PDB_SGF_SHIFT)
++#define GEN_PDB_SGF_R			(0x40 << GEN_PDB_SGF_SHIFT)
++#define GEN_PDB_SGF_G			(0x20 << GEN_PDB_SGF_SHIFT)
++#define GEN_PDB_SGF_S			(0x10 << GEN_PDB_SGF_SHIFT)
++#define GEN_PDB_SGF_W			(0x08 << GEN_PDB_SGF_SHIFT)
++#define GEN_PDB_SGF_AB			(0x04 << GEN_PDB_SGF_SHIFT)
++ 
++#define GEN_PDB_L_SHIFT			7
++#define GEN_PDB_L_MASK			(0x3ff << GEN_PDB_L_SHIFT)
++ 
++#define GEN_PDB_N_MASK			0x7f
++
++struct dh_keygen_pdb {
++	u32 sgf_ln;
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma;
++	caam_dma_addr_t g_dma;
++	caam_dma_addr_t s_dma;
++	caam_dma_addr_t w_dma;
++} __packed;
++
++struct ecdh_keygen_pdb {
++	u32 sgf_ln;
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma;
++	caam_dma_addr_t g_dma;
++	caam_dma_addr_t s_dma;
++	caam_dma_addr_t w_dma;
++	caam_dma_addr_t ab_dma;
++} __packed;
++
++#define DH_PDB_SGF_SHIFT       	26
++#define DH_PDB_SGF_MASK        	(0xfc << DH_PDB_SGF_SHIFT)
++#define DH_PDB_SGF_Q           	(0x80 << DH_PDB_SGF_SHIFT)
++#define DH_PDB_SGF_R           	(0x40 << DH_PDB_SGF_SHIFT)
++#define DH_PDB_SGF_W           	(0x20 << DH_PDB_SGF_SHIFT)
++#define DH_PDB_SGF_S           	(0x10 << DH_PDB_SGF_SHIFT)
++#define DH_PDB_SGF_Z           	(0x08 << DH_PDB_SGF_SHIFT)
++#define DH_PDB_SGF_AB          	(0x04 << DH_PDB_SGF_SHIFT)
++#define DH_PDB_L_SHIFT         	7
++#define DH_PDB_L_MASK          	(0x3FF << DH_PDB_L_SHIFT)
++#define DH_PDB_N_MASK          	0x7F
++
++
++struct dh_pdb {
++	u32 sgf_ln; /* Use DH_PDB_ definitions per above */
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma; /* Unused in  DH */
++	caam_dma_addr_t w_dma;
++	caam_dma_addr_t s_dma;
++	caam_dma_addr_t z_dma;
++} __packed;
++
++struct ecdh_pdb {
++	u32 sgf_ln; /* Use ECDH_PDB_ definitions per above */
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t r_dma; 
++	caam_dma_addr_t w_dma;
++	caam_dma_addr_t s_dma;
++	caam_dma_addr_t z_dma;
++	caam_dma_addr_t ab_dma;
++} __packed;
+ 
+ /* RSA Protocol Data Block */
+ #define RSA_PDB_SGF_SHIFT       28
+@@ -496,6 +604,38 @@ struct dsa_verify_pdb {
+ #define RSA_PRIV_KEY_FRM_2      1
+ #define RSA_PRIV_KEY_FRM_3      2
+ 
++#define RSA_GEN_PDB_SGF_SHIFT       24
++#define RSA_GEN_PDB_N_SHIFT       	16
++#define RSA_GEN_PDB_N_MASK        	(0x3FF << RSA_GEN_PDB_N_SHIFT)
++#define RSA_GEN_PDB_E_MASK        	0x3FF
++#define RSA_GEN_PDB_P_MASK        	0x1FF
++ 
++#define RSA_GEN_PDB_SGF_p			(0x80 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF_Q			(0x40 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF_E			(0x20 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF_N			(0x10 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF_D			(0x8 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF__D			(0x4 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF_D1			(0x2 << RSA_GEN_PDB_SGF_SHIFT)
++#define RSA_GEN_PDB_SGF_D2			(0x1 << RSA_GEN_PDB_SGF_SHIFT)
++
++
++/* RSA Finalize Key Generation Protocol Data Block */
++struct rsa_fkg_pdb {
++	u32 sgf;
++	u32 p_len;
++	u32 ne_len;
++	caam_dma_addr_t p_dma;
++	caam_dma_addr_t q_dma;
++	caam_dma_addr_t e_dma;
++	caam_dma_addr_t n_dma;
++	caam_dma_addr_t d_dma;
++	caam_dma_addr_t _d_dma;
++	caam_dma_addr_t d1_dma;
++	caam_dma_addr_t d2_dma;
++	caam_dma_addr_t c_dma;
++} __packed;
++
+ /**
+  * RSA Encrypt Protocol Data Block
+  * @sgf: scatter-gather field
+@@ -507,12 +647,12 @@ struct dsa_verify_pdb {
+  */
+ struct rsa_pub_pdb {
+ 	u32		sgf;
+-	dma_addr_t	f_dma;
+-	dma_addr_t	g_dma;
+-	dma_addr_t	n_dma;
+-	dma_addr_t	e_dma;
++	caam_dma_addr_t	f_dma;
++	caam_dma_addr_t	g_dma;
++	caam_dma_addr_t	n_dma;
++	caam_dma_addr_t	e_dma;
+ 	u32		f_len;
+-};
++} __packed;
+ 
+ #define SIZEOF_RSA_PUB_PDB	(2 * sizeof(u32) + 4 * caam_ptr_sz)
+ 
+@@ -526,11 +666,11 @@ struct rsa_pub_pdb {
+  */
+ struct rsa_priv_f1_pdb {
+ 	u32		sgf;
+-	dma_addr_t	g_dma;
+-	dma_addr_t	f_dma;
+-	dma_addr_t	n_dma;
+-	dma_addr_t	d_dma;
+-};
++	caam_dma_addr_t	g_dma;
++	caam_dma_addr_t	f_dma;
++	caam_dma_addr_t	n_dma;
++	caam_dma_addr_t	d_dma;
++} __packed;
+ 
+ #define SIZEOF_RSA_PRIV_F1_PDB	(sizeof(u32) + 4 * caam_ptr_sz)
+ 
+@@ -550,15 +690,15 @@ struct rsa_priv_f1_pdb {
+  */
+ struct rsa_priv_f2_pdb {
+ 	u32		sgf;
+-	dma_addr_t	g_dma;
+-	dma_addr_t	f_dma;
+-	dma_addr_t	d_dma;
+-	dma_addr_t	p_dma;
+-	dma_addr_t	q_dma;
+-	dma_addr_t	tmp1_dma;
+-	dma_addr_t	tmp2_dma;
++	caam_dma_addr_t	g_dma;
++	caam_dma_addr_t	f_dma;
++	caam_dma_addr_t	d_dma;
++	caam_dma_addr_t	p_dma;
++	caam_dma_addr_t	q_dma;
++	caam_dma_addr_t	tmp1_dma;
++	caam_dma_addr_t	tmp2_dma;
+ 	u32		p_q_len;
+-};
++} __packed;
+ 
+ #define SIZEOF_RSA_PRIV_F2_PDB	(2 * sizeof(u32) + 7 * caam_ptr_sz)
+ 
+@@ -582,18 +722,42 @@ struct rsa_priv_f2_pdb {
+  */
+ struct rsa_priv_f3_pdb {
+ 	u32		sgf;
+-	dma_addr_t	g_dma;
+-	dma_addr_t	f_dma;
+-	dma_addr_t	c_dma;
+-	dma_addr_t	p_dma;
+-	dma_addr_t	q_dma;
+-	dma_addr_t	dp_dma;
+-	dma_addr_t	dq_dma;
+-	dma_addr_t	tmp1_dma;
+-	dma_addr_t	tmp2_dma;
++	caam_dma_addr_t	g_dma;
++	caam_dma_addr_t	f_dma;
++	caam_dma_addr_t	c_dma;
++	caam_dma_addr_t	p_dma;
++	caam_dma_addr_t	q_dma;
++	caam_dma_addr_t	dp_dma;
++	caam_dma_addr_t	dq_dma;
++	caam_dma_addr_t	tmp1_dma;
++	caam_dma_addr_t	tmp2_dma;
+ 	u32		p_q_len;
+-};
++} __packed;
+ 
+ #define SIZEOF_RSA_PRIV_F3_PDB	(2 * sizeof(u32) + 9 * caam_ptr_sz)
+ 
++struct mp_sign_pdb {
++	u32 sgf_csel; 
++	caam_dma_addr_t m_dma; /* Address to The message data to be signed */
++	caam_dma_addr_t mes_rep_dma; /* Address to The hash of the MPMR concatenated with m. */
++	caam_dma_addr_t c_dma; /* Address to First part of digital signature */
++	caam_dma_addr_t d_dma; /* Address to Second part of digital signature. The buffer for d must be a multiple of 16 bytes,
++							as it is used to store an encrypted intermediate result, which may include
++							padding. */
++	u32 m_length; /* Message length */
++} __packed;
++
++struct mp_pubk_gen_pdb {
++	u32 sgf_csel; 
++	caam_dma_addr_t w_dma; /* Address to Public key */
++} __packed;
++
++struct mp_ecdh_pdb {
++	u32 sgf_csel; 
++	caam_dma_addr_t w_dma; /* Address to The other entity's public key */
++	caam_dma_addr_t z_dma; /* Address to The value of the shared secret */
++} __packed;
++
++#define MP_PDB_CSEL_SHIFT	17
++
+ #endif
+diff --git a/drivers/crypto/caam/pkc_desc.c b/drivers/crypto/caam/pkc_desc.c
+index 0d5ee762e036..7cbe17110e17 100644
+--- a/drivers/crypto/caam/pkc_desc.c
++++ b/drivers/crypto/caam/pkc_desc.c
+@@ -13,7 +13,7 @@
+ /* Descriptor for RSA Public operation */
+ void init_rsa_pub_desc(u32 *desc, struct rsa_pub_pdb *pdb)
+ {
+-	init_job_desc_pdb(desc, 0, SIZEOF_RSA_PUB_PDB);
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
+ 	append_cmd(desc, pdb->sgf);
+ 	append_ptr(desc, pdb->f_dma);
+ 	append_ptr(desc, pdb->g_dma);
+@@ -26,7 +26,7 @@ void init_rsa_pub_desc(u32 *desc, struct rsa_pub_pdb *pdb)
+ /* Descriptor for RSA Private operation - Private Key Form #1 */
+ void init_rsa_priv_f1_desc(u32 *desc, struct rsa_priv_f1_pdb *pdb)
+ {
+-	init_job_desc_pdb(desc, 0, SIZEOF_RSA_PRIV_F1_PDB);
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
+ 	append_cmd(desc, pdb->sgf);
+ 	append_ptr(desc, pdb->g_dma);
+ 	append_ptr(desc, pdb->f_dma);
+@@ -39,7 +39,7 @@ void init_rsa_priv_f1_desc(u32 *desc, struct rsa_priv_f1_pdb *pdb)
+ /* Descriptor for RSA Private operation - Private Key Form #2 */
+ void init_rsa_priv_f2_desc(u32 *desc, struct rsa_priv_f2_pdb *pdb)
+ {
+-	init_job_desc_pdb(desc, 0, SIZEOF_RSA_PRIV_F2_PDB);
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
+ 	append_cmd(desc, pdb->sgf);
+ 	append_ptr(desc, pdb->g_dma);
+ 	append_ptr(desc, pdb->f_dma);
+@@ -56,7 +56,7 @@ void init_rsa_priv_f2_desc(u32 *desc, struct rsa_priv_f2_pdb *pdb)
+ /* Descriptor for RSA Private operation - Private Key Form #3 */
+ void init_rsa_priv_f3_desc(u32 *desc, struct rsa_priv_f3_pdb *pdb)
+ {
+-	init_job_desc_pdb(desc, 0, SIZEOF_RSA_PRIV_F3_PDB);
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
+ 	append_cmd(desc, pdb->sgf);
+ 	append_ptr(desc, pdb->g_dma);
+ 	append_ptr(desc, pdb->f_dma);
+@@ -71,3 +71,230 @@ void init_rsa_priv_f3_desc(u32 *desc, struct rsa_priv_f3_pdb *pdb)
+ 	append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_RSADEC_PRVKEY |
+ 			 RSA_PRIV_KEY_FRM_3);
+ }
++
++
++void init_rsa_keygen_desc(u32 *desc, struct rsa_fkg_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf);
++	append_cmd(desc, pdb->p_len);
++	append_cmd(desc, pdb->ne_len);
++	append_ptr(desc, pdb->p_dma);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->e_dma);
++	append_ptr(desc, pdb->n_dma);
++	append_ptr(desc, pdb->d_dma);
++	append_ptr(desc, pdb->_d_dma);
++	append_ptr(desc, pdb->d1_dma);
++	append_ptr(desc, pdb->d2_dma);	
++	append_ptr(desc, pdb->c_dma);
++	append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_RSA_FINISH_KEYGEN);
++}
++
++void init_dh_keygen_desc(u32 *desc, struct dh_keygen_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->g_dma);
++	append_ptr(desc, pdb->s_dma);
++	append_ptr(desc, pdb->w_dma);
++	append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_PUBLICKEYPAIR);
++}
++
++void init_ecdh_keygen_desc(u32 *desc, struct ecdh_keygen_pdb *pdb, int arith_type)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->g_dma);
++	append_ptr(desc, pdb->s_dma);
++	append_ptr(desc, pdb->w_dma);
++	append_ptr(desc, pdb->ab_dma);
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_PUBLICKEYPAIR | OP_PCL_PKPROT_ECC |
++			 OP_PCL_PKPROT_F2M);
++	else
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_PUBLICKEYPAIR | OP_PCL_PKPROT_ECC);
++}
++
++void init_dh_desc(u32 *desc, struct dh_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->w_dma);
++	append_ptr(desc, pdb->s_dma);
++	append_ptr(desc, pdb->z_dma);
++	append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DH);
++}
++
++void init_ecdh_desc(u32 *desc, struct ecdh_pdb *pdb, int arith_type)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->w_dma);
++	append_ptr(desc, pdb->s_dma);
++	append_ptr(desc, pdb->z_dma);
++	append_ptr(desc, pdb->ab_dma);
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DH | OP_PCL_PKPROT_ECC |
++			OP_PCL_PKPROT_F2M);
++	else
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DH | OP_PCL_PKPROT_ECC);
++}
++
++void init_dsa_sign_desc(u32 *desc, struct dsa_sign_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->g_dma);
++	append_ptr(desc, pdb->s_dma);
++	append_ptr(desc, pdb->f_dma);
++	append_ptr(desc, pdb->c_dma);
++	append_ptr(desc, pdb->d_dma);
++	append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DSASIGN);
++}
++
++void init_dsa_verify_desc(u32 *desc, struct dsa_verify_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->g_dma);
++	append_ptr(desc, pdb->w_dma);
++	append_ptr(desc, pdb->f_dma);
++	append_ptr(desc, pdb->c_dma);
++	append_ptr(desc, pdb->d_dma);
++	append_ptr(desc, pdb->tmp_dma);
++	append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DSAVERIFY);
++}
++
++void init_ecdsa_sign_desc(u32 *desc, struct ecdsa_sign_pdb *pdb, int arith_type)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->g_dma);
++	append_ptr(desc, pdb->s_dma);
++	append_ptr(desc, pdb->f_dma);
++	append_ptr(desc, pdb->c_dma);
++	append_ptr(desc, pdb->d_dma);
++	append_ptr(desc, pdb->ab_dma);
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DSASIGN | OP_PCL_PKPROT_ECC |
++			OP_PCL_PKPROT_F2M);
++	else
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DSASIGN | OP_PCL_PKPROT_ECC);
++}
++
++void init_ecdsa_verify_desc(u32 *desc, struct ecdsa_verify_pdb *pdb, int arith_type)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_ln);
++	append_ptr(desc, pdb->q_dma);
++	append_ptr(desc, pdb->r_dma);
++	append_ptr(desc, pdb->g_dma);
++	append_ptr(desc, pdb->w_dma);
++	append_ptr(desc, pdb->f_dma);
++	append_ptr(desc, pdb->c_dma);
++	append_ptr(desc, pdb->d_dma);
++	append_ptr(desc, pdb->tmp_dma);
++	append_ptr(desc, pdb->ab_dma);
++	if (PKHA_F2M_Arith == arith_type)
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DSAVERIFY | OP_PCL_PKPROT_ECC |
++			OP_PCL_PKPROT_F2M);
++	else
++		append_operation(desc, OP_TYPE_UNI_PROTOCOL | OP_PCLID_DSAVERIFY | OP_PCL_PKPROT_ECC);
++}
++
++void init_manufacturing_protection_sign_desc(u32 *desc, struct mp_sign_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_csel);
++	append_ptr(desc, pdb->m_dma);
++	append_ptr(desc, pdb->mes_rep_dma);
++	append_ptr(desc, pdb->c_dma);
++	append_ptr(desc, pdb->d_dma);
++	append_ptr(desc, pdb->m_length);
++	append_operation(desc, OP_TYPE_DECAP_PROTOCOL | OP_PCLID_DSASIGN);
++}
++
++void init_manufacturing_protection_pubk_gen_desc(u32 *desc, struct mp_pubk_gen_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_csel);
++	append_ptr(desc, pdb->w_dma);
++	append_operation(desc, OP_TYPE_DECAP_PROTOCOL | OP_PCLID_PUBLICKEYPAIR);
++}
++
++void init_manufacturing_protection_ecdh_desc(u32 *desc, struct mp_ecdh_pdb *pdb)
++{
++	init_job_desc_pdb(desc, 0, sizeof(*pdb));
++	append_cmd(desc, pdb->sgf_csel);
++	append_ptr(desc, pdb->w_dma);
++	append_ptr(desc, pdb->z_dma);
++	append_operation(desc, OP_TYPE_DECAP_PROTOCOL | OP_PCLID_DH);
++}
++
++
++void init_sm2_verify_job_desc(u32 *desc, pkha_sm2_verify_t *pkha_sm2_verify)
++{
++	init_job_desc_sm2(desc, 0);
++
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_n, pkha_sm2_verify->n_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_N ); /* n */
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_r, pkha_sm2_verify->n_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A ); /* r */
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_s, pkha_sm2_verify->n_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_B ); /* s */
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_MOD_ADD | (OP_ALG_PKMODE_OUT_B & (~OP_ALG_PKMODE_OUT_A))); /*calculate t = (r + s) mod n */
++
++	// ... fail if t=0 
++	append_jump(desc, JUMP_TYPE_HALT_USER | JUMP_COND_PK_0 | (0x42 & JUMP_OFFSET_MASK));
++
++	// B6: calculate the point (x1', y1')=[s']G + [t]PA 
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_COPY_SSZ_B_E); //copy t to E
++
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_p, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_N ); // p
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_R2p, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_B1 ); // R2P 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_a, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A3 ); // a
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_b, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_B0 ); // b 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_xA, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A0 ); // xA 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_yA, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A1 ); // yA 
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_ECC_MOD_MUL_R2 | (OP_ALG_PKMODE_OUT_B & (~OP_ALG_PKMODE_OUT_A))); //output [t]PA to B
++
++	append_fifo_store(desc,pkha_sm2_verify->phy_addr_tmp1, pkha_sm2_verify->p_len, FIFOST_TYPE_PKHA_B1);    
++	append_fifo_store(desc,pkha_sm2_verify->phy_addr_tmp2, pkha_sm2_verify->p_len, FIFOST_TYPE_PKHA_B2);
++
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_R2p, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_B1 ); // R2P, other constant
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_a, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A3 ); // a, operation last will affect A3,B3
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_xG, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A0 ); // xG 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_yG, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A1 ); // yG
++	append_key(desc, pkha_sm2_verify->phy_addr_s, pkha_sm2_verify->p_len, KEY_DEST_CLASS1 | KEY_DEST_PKHA_E ) ; //s
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_ECC_MOD_MUL_R2 | (OP_ALG_PKMODE_OUT_B & (~OP_ALG_PKMODE_OUT_A)));//output [s`]G to B
++
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_R2p, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_B3 ); // R2P, other constant 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_a, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A3 ); // a, operation last will affect A3,B3  
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_tmp1, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A0 ); // phy_addr_tmp1 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_tmp2, pkha_sm2_verify->p_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_A1 ); // phy_addr_tmp2 
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK | OP_ALG_PKMODE_ECC_MOD_ADD_R2 | OP_ALG_PKMODE_OUT_A);// output [s`]G+[t]PA to A
++
++	// B7: calculate R=(e'+x1') mod n, verification pass if yes, otherwise failed 
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_n, pkha_sm2_verify->n_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_N ); /* n */
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_e, pkha_sm2_verify->n_len, FIFOLD_CLASS_CLASS1 | FIFOLD_TYPE_PK_B ); // s 
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK |  OP_ALG_PKMODE_MOD_ADD | OP_ALG_PKMODE_OUT_A );//output e+x1 mod n to A 
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK |  OP_ALG_PKMODE_MOD_REDUCT | (OP_ALG_PKMODE_OUT_B & (~OP_ALG_PKMODE_OUT_A)));//output X1 mod n to B,may need extra reduction
++	append_fifo_load(desc, pkha_sm2_verify->phy_addr_r, pkha_sm2_verify->n_len, CLASS_1 | FIFOLD_TYPE_PK_A); // r 
++
++	// Compare computed r with received r 
++	append_operation(desc, OP_TYPE_PK | OP_ALG_PK |  OP_ALG_PKMODE_F2M_ADD | (OP_ALG_PKMODE_OUT_B & (~OP_ALG_PKMODE_OUT_A)));// XOR function 
++	append_fifo_store(desc,pkha_sm2_verify->phy_addr_tmp1, pkha_sm2_verify->p_len, FIFOST_TYPE_PKHA_B);
++	append_jump(desc, JUMP_TYPE_HALT_USER | JUMP_TEST_INVANY | JUMP_COND_PK_0 | (0x42 & JUMP_OFFSET_MASK));
++}
+diff --git a/drivers/crypto/caam/regs.h b/drivers/crypto/caam/regs.h
+index 70ac8ad90c31..9162ad2f594f 100644
+--- a/drivers/crypto/caam/regs.h
++++ b/drivers/crypto/caam/regs.h
+@@ -73,6 +73,8 @@ extern bool caam_little_end;
+ extern bool caam_imx;
+ extern size_t caam_ptr_sz;
+ 
++#define caam_dma_addr_t u32
++
+ #define caam_to_cpu(len)						\
+ static inline u##len caam##len ## _to_cpu(u##len val)			\
+ {									\
+-- 
+2.35.1
+

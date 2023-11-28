@@ -1,0 +1,77 @@
+From 29e078c99900142dcece0da0d630ca6691b071e2 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Thu, 26 Oct 2023 16:35:49 +0800
+Subject: [PATCH] Add scan_frame_id to match output frame id of
+ depthimage_to_laserscan
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ include/nav2_amcl/amcl_node.hpp |  1 +
+ src/amcl_node.cpp               | 11 ++++++++++-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/include/nav2_amcl/amcl_node.hpp b/include/nav2_amcl/amcl_node.hpp
+index 2360d09c2..4713957bf 100644
+--- a/include/nav2_amcl/amcl_node.hpp
++++ b/include/nav2_amcl/amcl_node.hpp
+@@ -362,6 +362,7 @@ protected:
+   int max_particles_;
+   int min_particles_;
+   std::string odom_frame_id_;
++  std::string scan_frame_id_;
+   double pf_err_;
+   double pf_z_;
+   double alpha_fast_;
+diff --git a/src/amcl_node.cpp b/src/amcl_node.cpp
+index 2e9730ae5..1d6062d95 100644
+--- a/src/amcl_node.cpp
++++ b/src/amcl_node.cpp
+@@ -156,6 +156,10 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
+     "odom_frame_id", rclcpp::ParameterValue(std::string("odom")),
+     "Which frame to use for odometry");
+ 
++  add_parameter(
++    "scan_frame_id", rclcpp::ParameterValue(std::string("base_laser")),
++    "Which frame to use for scan");
++
+   add_parameter("pf_err", rclcpp::ParameterValue(0.05));
+   add_parameter("pf_z", rclcpp::ParameterValue(0.99));
+ 
+@@ -1060,6 +1064,7 @@ AmclNode::initParameters()
+   get_parameter("max_particles", max_particles_);
+   get_parameter("min_particles", min_particles_);
+   get_parameter("odom_frame_id", odom_frame_id_);
++  get_parameter("scan_frame_id", scan_frame_id_);
+   get_parameter("pf_err", pf_err_);
+   get_parameter("pf_z", pf_z_);
+   get_parameter("recovery_alpha_fast", alpha_fast_);
+@@ -1085,6 +1090,7 @@ AmclNode::initParameters()
+   transform_tolerance_ = tf2::durationFromSec(tmp_tol);
+ 
+   odom_frame_id_ = nav2_util::strip_leading_slash(odom_frame_id_);
++  scan_frame_id_ = nav2_util::strip_leading_slash(scan_frame_id_);
+   base_frame_id_ = nav2_util::strip_leading_slash(base_frame_id_);
+   global_frame_id_ = nav2_util::strip_leading_slash(global_frame_id_);
+ 
+@@ -1280,6 +1286,9 @@ AmclNode::dynamicParametersCallback(
+       } else if (param_name == "odom_frame_id") {
+         odom_frame_id_ = parameter.as_string();
+         reinit_laser = true;
++      } else if (param_name == "scan_frame_id") {
++        scan_frame_id_ = parameter.as_string();
++        reinit_laser = true;
+       } else if (param_name == "scan_topic") {
+         scan_topic_ = parameter.as_string();
+         reinit_laser = true;
+@@ -1490,7 +1499,7 @@ AmclNode::initMessageFilters()
+     shared_from_this(), scan_topic_, rmw_qos_profile_sensor_data, sub_opt);
+ 
+   laser_scan_filter_ = std::make_unique<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>>(
+-    *laser_scan_sub_, *tf_buffer_, odom_frame_id_, 10,
++    *laser_scan_sub_, *tf_buffer_, scan_frame_id_, 150,
+     get_node_logging_interface(),
+     get_node_clock_interface(),
+     transform_tolerance_);
+-- 
+2.35.1
+

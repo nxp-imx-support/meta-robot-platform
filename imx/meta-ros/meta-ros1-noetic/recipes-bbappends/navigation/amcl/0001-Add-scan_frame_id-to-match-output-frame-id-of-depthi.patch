@@ -1,0 +1,81 @@
+From 9eab63f073c299b06eb95e08d797a80b27d7ef4b Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Mon, 24 Oct 2022 17:40:06 +0800
+Subject: [PATCH] Add scan_frame_id to match output frame id of
+ depthimage_to_laserscan
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ cfg/AMCL.cfg      | 1 +
+ src/amcl_node.cpp | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/cfg/AMCL.cfg b/cfg/AMCL.cfg
+index 8cddf6647..83352a82f 100755
+--- a/cfg/AMCL.cfg
++++ b/cfg/AMCL.cfg
+@@ -67,6 +67,7 @@ gen.add("odom_alpha4", double_t, 0, "Specifies the expected noise in odometry's
+ gen.add("odom_alpha5", double_t, 0, "Translation-related noise parameter (only used if model is omni).", .2, 0, 10)
+ 
+ gen.add("odom_frame_id", str_t, 0, "Which frame to use for odometry.", "odom")
++gen.add("scan_frame_id", str_t, 0, "Which frame to use for scan.", "base_laser")
+ gen.add("base_frame_id", str_t, 0, "Which frame to use for the robot base.", "base_link")
+ gen.add("global_frame_id", str_t, 0, "The name of the coordinate frame published by the localization system.", "map")
+ 
+diff --git a/src/amcl_node.cpp b/src/amcl_node.cpp
+index 1a724e68e..5ebda2e2a 100644
+--- a/src/amcl_node.cpp
++++ b/src/amcl_node.cpp
+@@ -183,6 +183,7 @@ class AmclNode
+ 
+     //parameter for what odom to use
+     std::string odom_frame_id_;
++    std::string scan_frame_id_;
+ 
+     //paramater to store latest odom pose
+     geometry_msgs::PoseStamped latest_odom_pose_;
+@@ -434,6 +435,7 @@ AmclNode::AmclNode() :
+   private_nh_.param("update_min_d", d_thresh_, 0.2);
+   private_nh_.param("update_min_a", a_thresh_, M_PI/6.0);
+   private_nh_.param("odom_frame_id", odom_frame_id_, std::string("odom"));
++  private_nh_.param("scan_frame_id", scan_frame_id_, std::string("base_laser"));
+   private_nh_.param("base_frame_id", base_frame_id_, std::string("base_link"));
+   private_nh_.param("global_frame_id", global_frame_id_, std::string("map"));
+   private_nh_.param("resample_interval", resample_interval_, 2);
+@@ -458,6 +460,7 @@ AmclNode::AmclNode() :
+   }
+ 
+   odom_frame_id_ = stripSlash(odom_frame_id_);
++  scan_frame_id_ = stripSlash(scan_frame_id_);
+   base_frame_id_ = stripSlash(base_frame_id_);
+   global_frame_id_ = stripSlash(global_frame_id_);
+ 
+@@ -480,7 +483,7 @@ AmclNode::AmclNode() :
+   laser_scan_filter_ = 
+           new tf2_ros::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_,
+                                                              *tf_,
+-                                                             odom_frame_id_,
++                                                             scan_frame_id_,
+                                                              100,
+                                                              nh_);
+   laser_scan_filter_->registerCallback(boost::bind(&AmclNode::laserReceived,
+@@ -648,6 +651,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
+   }
+ 
+   odom_frame_id_ = stripSlash(config.odom_frame_id);
++  scan_frame_id_ = stripSlash(config.scan_frame_id);
+   base_frame_id_ = stripSlash(config.base_frame_id);
+   global_frame_id_ = stripSlash(config.global_frame_id);
+ 
+@@ -655,7 +659,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
+   laser_scan_filter_ = 
+           new tf2_ros::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_,
+                                                              *tf_,
+-                                                             odom_frame_id_,
++                                                             scan_frame_id_,
+                                                              100,
+                                                              nh_);
+   laser_scan_filter_->registerCallback(boost::bind(&AmclNode::laserReceived,
+-- 
+2.35.1
+

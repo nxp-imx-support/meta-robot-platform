@@ -1,0 +1,199 @@
+From 64a2836ec21026f44dcaefaaa3a9991fbe71a658 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Wed, 8 Sep 2021 14:31:03 +0800
+Subject: [PATCH 1/2] Change head file for supporting asymmetric cryptography
+ by CAAM accelerating
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ crypto/cryptodev.h | 136 +++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 126 insertions(+), 10 deletions(-)
+
+diff --git a/crypto/cryptodev.h b/crypto/cryptodev.h
+index e66606f..7530ebe 100644
+--- a/crypto/cryptodev.h
++++ b/crypto/cryptodev.h
+@@ -43,6 +43,18 @@ enum cryptodev_crypto_op_t {
+ 	CRYPTO_AES_XTS = 22,
+ 	CRYPTO_AES_ECB = 23,
+ 	CRYPTO_AES_GCM = 50,
++	CRYPTO_AES_CCM = 51,
++	CRYPTO_AES_CFB128 = 52,
++	CRYPTO_AES_OFB = 53,
++	CRYPTO_AES_CMAC = 54,
++	CRYPTO_AES_XCBC_MAC = 55,
++
++	CRYPTO_DES_ECB = 80,
++	CRYPTO_DES_CFB,
++	CRYPTO_DES_OFB,
++	CRYPTO_3DES_ECB,
++	CRYPTO_3DES_CFB,
++	CRYPTO_3DES_OFB,
+ 
+ 	CRYPTO_CAMELLIA_CBC = 101,
+ 	CRYPTO_RIPEMD160,
+@@ -53,6 +65,42 @@ enum cryptodev_crypto_op_t {
+ 	CRYPTO_SHA2_224_HMAC,
+ 	CRYPTO_TLS11_AES_CBC_HMAC_SHA1,
+ 	CRYPTO_TLS12_AES_CBC_HMAC_SHA256,
++
++
++	CRYPTO_PKHA_MOD_EXP = 200,
++	CRYPTO_PKHA_MOD_EXP_CRT = 201,
++	CRYPTO_PKHA_MOD_ADD = 202,
++	CRYPTO_PKHA_MOD_SUB1 = 203,
++	CRYPTO_PKHA_MOD_SUB2 = 204,
++	CRYPTO_PKHA_MOD_MUL = 205,
++	CRYPTO_PKHA_MOD_RED = 206,
++	CRYPTO_PKHA_MOD_INV = 207,
++	CRYPTO_PKHA_GCD = 208,
++	CRYPTO_PKHA_PRIMALITY_TEST = 209,
++	CRYPTO_PKHA_MOD_R2 = 210,
++	CRYPTO_PKHA_CLEAR_MEM = 211,
++	CRYPTO_PKHA_COPY_MEM = 212,
++	CRYPTO_PKHA_ECC_ADD = 213,
++	CRYPTO_PKHA_ECC_DOUBLE = 214,
++	CRYPTO_PKHA_ECC_MUL = 215,
++	CRYPTO_PKHA_ECC_IS_INFINITY = 216,
++	CRYPTO_PKHA_ECC_CHECK_POINT = 217,
++	CRYPTO_ASYMMETRIC_DSA_SIGN = 300,
++	CRYPTO_ASYMMETRIC_DSA_VERIFY = 301,
++	CRYPTO_ASYMMETRIC_ECDSA_SIGN = 302,
++	CRYPTO_ASYMMETRIC_ECDSA_VERIFY = 303,
++	CRYPTO_ASYMMETRIC_DH_GENERATE_KEY = 304,
++	CRYPTO_ASYMMETRIC_ECDH_GENERATE_KEY = 305,
++	CRYPTO_ASYMMETRIC_DH_COMPUTE_KEY = 306,
++	CRYPTO_ASYMMETRIC_ECDH_COMPUTE_KEY = 307,
++	CRYPTO_ASYMMETRIC_RSA_PUBLIC = 308,
++	CRYPTO_ASYMMETRIC_RSA_PRIVATE = 309,
++	CRYPTO_ASYMMETRIC_RSA_GENERATE_KEY = 310,
++	CRYPTO_MP_SIGN = 311,
++	CRYPTO_MP_GET_PUBK = 312,
++	CRYPTO_CV2X_NISTP256_VERIFY = 313,
++	CRYPTO_CV2X_BP_P256R1_VERIFY = 314,
++	CRYPTO_CV2X_SM2_VERIFY = 315,
+ 	CRYPTO_ALGORITHM_ALL, /* Keep updated - see below */
+ };
+ 
+@@ -85,6 +133,7 @@ struct session_op {
+ 	 */
+ 	__u32	cipher;		/* cryptodev_crypto_op_t */
+ 	__u32	mac;		/* cryptodev_crypto_op_t */
++	__u32	pk_cipher;	/* cryptodev_crk_op_t */
+ 
+ 	__u32	keylen;
+ 	__u8	__user *key;
+@@ -239,9 +288,22 @@ struct crparam {
+ 
+ #define CRK_MAXPARAM	8
+ 
++/* struct crypt_kop crk_flags */
++#define KCOP_FLAG_NONE					(0 << 0) /* totally no flag */
++#define KCOP_FLAG_INTEGER_ARITH			(1 << 0) /* ECC prime  field */
++#define KCOP_FLAG_F2M_ARITH				(1 << 1) /* ECC binary field */
++#define KCOP_FLAG_R2INPUT				(1 << 2) /* Indicates whether the term (R2 mod N) be supplied as an input */
++#define KCOP_FLAG_MONTGOMERY_FORMAT		(1 << 3) /* Montgomery format */
++#define KCOP_FLAG_TIMING_EQUALIZATION	(1 << 4) /* Timing equalization */
++#define KCOP_FLAG_MP_CSEL_P256			(1 << 5) /* Curve Select : P256 */
++#define KCOP_FLAG_MP_CSEL_P384			(1 << 6) /* Curve Select : P384 */
++#define KCOP_FLAG_MP_CSEL_P521			(1 << 7) /* Curve Select : P521 */
++
+ /* input of CIOCKEY */
+ struct crypt_kop {
++	__u32	ses;		/* session identifier */
+ 	__u32	crk_op;		/* cryptodev_crk_op_t */
++	__u32	crk_flags;  /* public key cipher operation flags */
+ 	__u32	crk_status;
+ 	__u16	crk_iparams;
+ 	__u16	crk_oparams;
+@@ -251,11 +313,38 @@ struct crypt_kop {
+ 
+ enum cryptodev_crk_op_t {
+ 	CRK_MOD_EXP = 0,
+-	CRK_MOD_EXP_CRT = 1,
+-	CRK_DSA_SIGN = 2,
+-	CRK_DSA_VERIFY = 3,
+-	CRK_DH_COMPUTE_KEY = 4,
+-	CRK_ALGORITHM_ALL
++	CRK_MOD_EXP_CRT = 1,	
++	CRK_MOD_ADD = 2,
++	CRK_MOD_SUB1 = 3,
++	CRK_MOD_SUB2 = 4,
++	CRK_MOD_MUL = 5,
++	CRK_MOD_RED = 6,
++	CRK_MOD_INV = 7,
++	CRK_GCD = 8,
++	CRK_PRIMALITY_TEST = 9,
++	CRK_MOD_R2 = 10,
++	CRK_CLEAR_MEM = 11,
++	CRK_COPY_MEM = 12,
++	CRK_ECC_ADD = 13,	
++	CRK_ECC_DOUBLE = 14,
++	CRK_ECC_MUL = 15,
++	CRK_ECC_MUL_IS_INFINITY = 16,
++	CRK_ECC_CHECK_POINT = 17,
++	CRK_DSA_SIGN = 18,
++	CRK_DSA_VERIFY = 19,
++	CRK_ECDSA_SIGN = 20,
++	CRK_ECDSA_VERIFY = 21,
++	CRK_DH_COMPUTE_KEY = 22,
++	CRK_ECDH_COMPUTE_KEY = 23,
++	CRK_DH_GENERATE_KEY = 24,
++	CRK_ECDH_GENERATE_KEY = 25,
++	CRK_RSA_PUBLIC = 26,
++	CRK_RSA_PRIVATE = 27,
++	CRK_RSA_GENERATE_KEY = 28,
++	CRK_MP_SIGN = 29,
++	CRK_MP_GET_PUBK = 30,
++	CRK_CV2X_VERIFY = 31,
++	CRK_ALGORITHM_ALL	
+ };
+ 
+ /* input of CIOCCPHASH
+@@ -274,11 +363,38 @@ struct cphash_op {
+ 
+ /* features to be queried with CIOCASYMFEAT ioctl
+  */
+-#define CRF_MOD_EXP		(1 << CRK_MOD_EXP)
+-#define CRF_MOD_EXP_CRT		(1 << CRK_MOD_EXP_CRT)
+-#define CRF_DSA_SIGN		(1 << CRK_DSA_SIGN)
+-#define CRF_DSA_VERIFY		(1 << CRK_DSA_VERIFY)
+-#define CRF_DH_COMPUTE_KEY	(1 << CRK_DH_COMPUTE_KEY)
++#define CRF_MOD_EXP				(1 << CRK_MOD_EXP)
++#define CRF_MOD_EXP_CRT			(1 << CRK_MOD_EXP_CRT)
++#define CRF_MOD_ADD    			(1 << CRK_MOD_ADD)
++#define CRF_MOD_SUB1    		(1 << CRK_MOD_SUB1)
++#define CRF_MOD_SUB2    		(1 << CRK_MOD_SUB2)
++#define CRF_MOD_MUL     		(1 << CRK_MOD_MUL)
++#define CRF_MOD_RED     		(1 << CRK_MOD_RED)
++#define CRF_MOD_INV   			(1 << CRK_MOD_INV)
++#define CRF_GCD             	(1 << CRK_GCD)
++#define CRF_PRIMALITY_TEST  	(1 << CRK_PRIMALITY_TEST)
++#define CRF_MOD_R2          	(1 << CRK_MOD_R2)
++#define CRF_CLEAR_MEM  			(1 << CRK_CLEAR_MEM)
++#define CRF_COPY_MEM   			(1 << CRK_COPY_MEM)
++#define CRF_ECC_ADD      		(1 << CRK_ECC_ADD)
++#define CRF_ECC_DOUBLE    		(1 << CRK_ECC_DOUBLE)
++#define CRF_ECC_MUL         	(1 << CRK_ECC_MUL)
++#define CRF_ECC_MUL_IS_INFINITY	(1 << CRK_ECC_MUL_IS_INFINITY)
++#define CRF_ECC_CHECK_POINT    	(1 << CRK_ECC_CHECK_POINT)
++#define CRF_DSA_SIGN			(1 << CRK_DSA_SIGN)
++#define CRF_DSA_VERIFY			(1 << CRK_DSA_VERIFY)
++#define CRF_ECDSA_SIGN			(1 << CRK_ECDSA_SIGN)
++#define CRF_ECDSA_VERIFY		(1 << CRK_ECDSA_VERIFY)
++#define CRF_DH_COMPUTE_KEY		(1 << CRK_DH_COMPUTE_KEY)
++#define CRF_ECDH_COMPUTE_KEY	(1 << CRK_ECDH_COMPUTE_KEY)
++#define CRF_DH_GENERATE_KEY		(1 << CRK_DH_GENERATE_KEY)
++#define CRF_ECDH_GENERATE_KEY 	(1 << CRK_ECDH_GENERATE_KEY)
++#define CRF_RSA_PUBLIC			(1 << CRK_RSA_PUBLIC)
++#define CRF_RSA_PRIVATE			(1 << CRK_RSA_PRIVATE)
++#define CRF_RSA_GENERATE_KEY	(1 << CRK_RSA_GENERATE_KEY)
++#define CRF_MP_SIGN				(1 << CRK_MP_SIGN)
++#define CRF_MP_GET_PUBK			(1 << CRK_MP_GET_PUBK)
++#define CRF_CV2X_VERIFY			(1 << CRK_CV2X_VERIFY)
+ 
+ 
+ /* ioctl's. Compatible with old linux cryptodev.h
+-- 
+2.33.0
+

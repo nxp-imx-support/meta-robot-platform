@@ -1,0 +1,82 @@
+This README file contains information on the contents of the meta-imx-robot layer.
+
+Please see the corresponding sections below for details.
+
+Dependencies
+============
+
+  URI: https://github.com/ros/meta-ros.git
+  tag: zeus/milestones/13
+
+
+
+Patches
+=======
+
+Please submit any patches against the meta-imx-robot layer to the maintainer:
+
+Maintainer: Xiaodong Zhang <xiaodong.zhang@nxp.com>
+
+Table of Contents
+=================
+
+
+I. Adding the meta-robot-platform layer to your build
+=================================================
+
+1, Copy meta-robot-platform into <i.MX Yocto folder>/source
+
+2, You should create a symbol link: setup-imx-robot.sh -> sources/meta-robot-platform/imx/meta-robot/tools/setup-imx-robot.sh
+
+II. How to build Robot image (example for i.MX8M Plus EVK board)
+========
+
+$ DISTRO=imx-robot-xwayland MACHINE=imx8mp-ai-robot source setup-imx-robot.sh -r noetic-b imx8mp-ai-robot-noetic
+
+[or DISTRO=imx-robot-xwayland MACHINE=imx8mp-ai-robot source setup-imx-robot.sh -r foxy -b imx8mp-ai-robot-foxy ]
+
+[or DISTRO=imx-robot-xwayland MACHINE=imx8mp-ai-robot source setup-imx-robot.sh -r humble -b imx8mp-ai-robot-humble ]
+
+$ bitbake imx-robot-sdk
+
+[or bitbake imx-robot-core ]
+
+[or bitbake imx-robot-system ]
+
+[or bitbake imx-robot-agv ]
+
+And if you add XENOMAI_KERNEL_MODE = "cobalt" or XENOMAI_KERNEL_MODE = "mercury" in local.conf (default XENOMAI_KERNEL_MODE = "mercury"), you also can build real-time image with Xenomai by the below command:
+
+bitbake imx-robot-core-rt
+
+[or bitbake imx-robot-system-rt ]
+
+III. Robot image sanity testing
+=======
+
+//ROS1 Sanity Test
+ #source /opt/ros/noetic/setup.sh
+
+ #echo $LD_LIBRARY_PATH
+
+ #roscore &
+
+ #rosnode list
+
+ #rosmsg list
+
+ #rosnode info /rosout
+
+//ROS2 Sanity Test
+
+ #source ros_setup.sh
+
+ #echo $LD_LIBRARY_PATH
+
+ #ros2 topic list
+
+ #ros2 interface list
+
+ #(sleep 5; ros2 topic pub /chatter std_msgs/String "data: Hello world") &
+
+ #ros2 topic echo /chatter

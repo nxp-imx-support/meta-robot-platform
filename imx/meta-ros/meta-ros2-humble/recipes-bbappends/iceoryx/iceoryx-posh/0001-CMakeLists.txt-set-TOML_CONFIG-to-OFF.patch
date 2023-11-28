@@ -1,0 +1,39 @@
+From 55aaec008276bdeb15e5c0d5272613713230dbe1 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 18 Apr 2023 17:04:39 +0800
+Subject: [PATCH] CMakeLists.txt: set TOML_CONFIG to OFF
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 02c9235..eb366dc 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -23,8 +23,8 @@ project(iceoryx_posh VERSION ${IOX_VERSION_STRING})
+ find_package(Threads REQUIRED)
+ find_package(iceoryx_hoofs REQUIRED)
+ 
+-option(DOWNLOAD_TOML_LIB "Download cpptoml via the CMake ExternalProject module" ON)
+-option(TOML_CONFIG "TOML support for RouDi with dynamic configuration" ON)
++option(DOWNLOAD_TOML_LIB "Download cpptoml via the CMake ExternalProject module" OFF)
++option(TOML_CONFIG "TOML support for RouDi with dynamic configuration" OFF)
+ option(ONE_TO_MANY_ONLY "Restricts communication to 1:n pattern" OFF)
+ 
+ if(TOML_CONFIG)
+@@ -35,8 +35,8 @@ if(TOML_CONFIG)
+     find_package(cpptoml REQUIRED)
+ endif()
+ 
+-include(IceoryxPackageHelper)
+-include(IceoryxPlatform)
++include(../recipe-sysroot/usr/lib/cmake/iceoryx_hoofs/IceoryxPackageHelper.cmake)
++include(../recipe-sysroot/usr/lib/cmake/iceoryx_hoofs/IceoryxPlatform.cmake)
+ 
+ include(cmake/IceoryxPoshDeployment.cmake)
+ 
+-- 
+2.35.1
+

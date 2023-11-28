@@ -1,0 +1,623 @@
+From ef8a959ccdbb2700eb28bfb9ae3960ebbb91c3a0 Mon Sep 17 00:00:00 2001
+From: zxd2021-iMX <xiaodong.zhang@nxp.com>
+Date: Fri, 24 Jun 2022 16:09:18 +0800
+Subject: [PATCH] Added functions: Save and Load from text files without using
+ cv::FileStorage.
+
+Signed-off-by: zxd2021-iMX <xiaodong.zhang@nxp.com>
+---
+ ...Save-and-Load-from-text-files-withou.patch | 304 ++++++++++++++++++
+ include/DBoW2/BowVector.h                     |  10 +
+ include/DBoW2/FORB.h                          |   6 +-
+ include/DBoW2/FeatureVector.h                 |  10 +
+ include/DBoW2/TemplatedVocabulary.h           | 132 +++++++-
+ src/FORB.cpp                                  |  36 +--
+ 6 files changed, 474 insertions(+), 24 deletions(-)
+ create mode 100644 0001-Added-functions-Save-and-Load-from-text-files-withou.patch
+
+diff --git a/0001-Added-functions-Save-and-Load-from-text-files-withou.patch b/0001-Added-functions-Save-and-Load-from-text-files-withou.patch
+new file mode 100644
+index 0000000..ac2dc06
+--- /dev/null
++++ b/0001-Added-functions-Save-and-Load-from-text-files-withou.patch
+@@ -0,0 +1,304 @@
++From b267f7e4ec9dab205c86a00b279565e4e7db7888 Mon Sep 17 00:00:00 2001
++From: zxd2021-iMX <xiaodong.zhang@nxp.com>
++Date: Fri, 24 Jun 2022 14:08:20 +0800
++Subject: [PATCH] Added functions: Save and Load from text files without using
++ cv::FileStorage.
++
++Signed-off-by: zxd2021-iMX <xiaodong.zhang@nxp.com>
++---
++ include/DBoW2/BowVector.h           |  10 +++
++ include/DBoW2/FORB.h                |   6 +-
++ include/DBoW2/FeatureVector.h       |  10 +++
++ include/DBoW2/TemplatedVocabulary.h | 131 +++++++++++++++++++++++++++-
++ src/FORB.cpp                        |  36 ++++----
++ 5 files changed, 169 insertions(+), 24 deletions(-)
++
++diff --git a/include/DBoW2/BowVector.h b/include/DBoW2/BowVector.h
++index 670b635..1d31523 100644
++--- a/include/DBoW2/BowVector.h
+++++ b/include/DBoW2/BowVector.h
++@@ -14,6 +14,9 @@
++ #include <map>
++ #include <vector>
++ 
+++#include <boost/serialization/serialization.hpp>
+++#include <boost/serialization/map.hpp>
+++
++ namespace DBoW2 {
++ 
++ /// Id of words
++@@ -56,6 +59,13 @@ enum ScoringType
++ class BowVector: 
++ 	public std::map<WordId, WordValue>
++ {
+++    friend class boost::serialization::access;
+++    template<class Archive>
+++    void serialize(Archive& ar, const int version)
+++    {
+++        ar & boost::serialization::base_object<std::map<WordId, WordValue> >(*this);
+++    }
+++
++ public:
++ 
++ 	/** 
++diff --git a/include/DBoW2/FORB.h b/include/DBoW2/FORB.h
++index 19e2544..78176d9 100644
++--- a/include/DBoW2/FORB.h
+++++ b/include/DBoW2/FORB.h
++@@ -18,7 +18,7 @@
++ 
++ namespace DBoW2 {
++ 
++-/// Functions to manipulate BRIEF descriptors
+++/// Functions to manipulate ORB descriptors
++ class FORB: protected FClass
++ {
++ public:
++@@ -44,8 +44,8 @@ public:
++    * @param b
++    * @return distance
++    */
++-  static double distance(const TDescriptor &a, const TDescriptor &b);
++-  
+++  static int distance(const TDescriptor &a, const TDescriptor &b);
+++
++   /**
++    * Returns a string version of the descriptor
++    * @param a descriptor
++diff --git a/include/DBoW2/FeatureVector.h b/include/DBoW2/FeatureVector.h
++index 08a91de..426f36d 100644
++--- a/include/DBoW2/FeatureVector.h
+++++ b/include/DBoW2/FeatureVector.h
++@@ -15,12 +15,22 @@
++ #include <vector>
++ #include <iostream>
++ 
+++#include <boost/serialization/serialization.hpp>
+++#include <boost/serialization/map.hpp>
+++
++ namespace DBoW2 {
++ 
++ /// Vector of nodes with indexes of local features
++ class FeatureVector: 
++   public std::map<NodeId, std::vector<unsigned int> >
++ {
+++    friend class boost::serialization::access;
+++    template<class Archive>
+++    void serialize(Archive& ar, const int version)
+++    {
+++        ar & boost::serialization::base_object<std::map<NodeId, std::vector<unsigned int> > >(*this);
+++    }
+++
++ public:
++ 
++   /**
++diff --git a/include/DBoW2/TemplatedVocabulary.h b/include/DBoW2/TemplatedVocabulary.h
++index 53a0e30..8d9e20d 100644
++--- a/include/DBoW2/TemplatedVocabulary.h
+++++ b/include/DBoW2/TemplatedVocabulary.h
++@@ -18,6 +18,7 @@
++ #include <string>
++ #include <algorithm>
++ #include <opencv2/core.hpp>
+++#include <limits>
++ 
++ #include "FeatureVector.h"
++ #include "BowVector.h"
++@@ -223,7 +224,19 @@ public:
++    * @param type new scoring type
++    */
++   void setScoringType(ScoringType type);
++-  
+++
+++  /**
+++   * Loads the vocabulary from a text file
+++   * @param filename
+++   */
+++  bool loadFromTextFile(const std::string &filename);
+++
+++  /**
+++   * Saves the vocabulary into a text file
+++   * @param filename
+++   */
+++  void saveToTextFile(const std::string &filename) const;  
+++
++   /**
++    * Saves the vocabulary into a file
++    * @param filename
++@@ -1314,6 +1327,122 @@ int TemplatedVocabulary<TDescriptor,F>::stopWords(double minWeight)
++ 
++ // --------------------------------------------------------------------------
++ 
+++template<class TDescriptor, class F>
+++bool TemplatedVocabulary<TDescriptor,F>::loadFromTextFile(const std::string &filename)
+++{
+++    ifstream f;
+++    f.open(filename.c_str());
+++	
+++    if(f.eof())
+++	return false;
+++
+++    m_words.clear();
+++    m_nodes.clear();
+++
+++    string s;
+++    getline(f,s);
+++    stringstream ss;
+++    ss << s;
+++    ss >> m_k;
+++    ss >> m_L;
+++    int n1, n2;
+++    ss >> n1;
+++    ss >> n2;
+++
+++    if(m_k<0 || m_k>20 || m_L<1 || m_L>10 || n1<0 || n1>5 || n2<0 || n2>3)
+++    {
+++        std::cerr << "Vocabulary loading failure: This is not a correct text file!" << endl;
+++	return false;
+++    }
+++    
+++    m_scoring = (ScoringType)n1;
+++    m_weighting = (WeightingType)n2;
+++    createScoringObject();
+++
+++    // nodes
+++    int expected_nodes =
+++    (int)((pow((double)m_k, (double)m_L + 1) - 1)/(m_k - 1));
+++    m_nodes.reserve(expected_nodes);
+++
+++    m_words.reserve(pow((double)m_k, (double)m_L + 1));
+++
+++    m_nodes.resize(1);
+++    m_nodes[0].id = 0;
+++    while(!f.eof())
+++    {
+++        string snode;
+++        getline(f,snode);
+++        stringstream ssnode;
+++        ssnode << snode;
+++
+++        int nid = m_nodes.size();
+++        m_nodes.resize(m_nodes.size()+1);
+++	m_nodes[nid].id = nid;
+++	
+++        int pid ;
+++        ssnode >> pid;
+++        m_nodes[nid].parent = pid;
+++        m_nodes[pid].children.push_back(nid);
+++
+++        int nIsLeaf;
+++        ssnode >> nIsLeaf;
+++
+++        stringstream ssd;
+++        for(int iD=0;iD<F::L;iD++)
+++        {
+++            string sElement;
+++            ssnode >> sElement;
+++            ssd << sElement << " ";
+++	}
+++        F::fromString(m_nodes[nid].descriptor, ssd.str());
+++
+++        ssnode >> m_nodes[nid].weight;
+++
+++        if(nIsLeaf>0)
+++        {
+++            int wid = m_words.size();
+++            m_words.resize(wid+1);
+++
+++            m_nodes[nid].word_id = wid;
+++            m_words[wid] = &m_nodes[nid];
+++        }
+++        else
+++        {
+++            m_nodes[nid].children.reserve(m_k);
+++        }
+++    }
+++
+++    return true;
+++
+++}
+++
+++// --------------------------------------------------------------------------
+++
+++template<class TDescriptor, class F>
+++void TemplatedVocabulary<TDescriptor,F>::saveToTextFile(const std::string &filename) const
+++{
+++    fstream f;
+++    f.open(filename.c_str(),ios_base::out);
+++    f << m_k << " " << m_L << " " << " " << m_scoring << " " << m_weighting << endl;
+++
+++    for(size_t i=1; i<m_nodes.size();i++)
+++    {
+++        const Node& node = m_nodes[i];
+++
+++        f << node.parent << " ";
+++        if(node.isLeaf())
+++            f << 1 << " ";
+++        else
+++            f << 0 << " ";
+++
+++        f << F::toString(node.descriptor) << " " << (double)node.weight << endl;
+++    }
+++
+++    f.close();
+++}
+++
+++// --------------------------------------------------------------------------
+++
++ template<class TDescriptor, class F>
++ void TemplatedVocabulary<TDescriptor,F>::save(const std::string &filename) const
++ {
++diff --git a/src/FORB.cpp b/src/FORB.cpp
++index 07e85c1..3237291 100644
++--- a/src/FORB.cpp
+++++ b/src/FORB.cpp
++@@ -76,30 +76,26 @@ void FORB::meanValue(const std::vector<FORB::pDescriptor> &descriptors,
++ 
++ // --------------------------------------------------------------------------
++   
++-double FORB::distance(const FORB::TDescriptor &a, 
+++int FORB::distance(const FORB::TDescriptor &a,
++   const FORB::TDescriptor &b)
++ {
++-  // Bit count function got from:
++-  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetKernighan
++-  // This implementation assumes that a.cols (CV_8U) % sizeof(uint64_t) == 0
++-  
++-  const uint64_t *pa, *pb;
++-  pa = a.ptr<uint64_t>(); // a & b are actually CV_8U
++-  pb = b.ptr<uint64_t>(); 
++-  
++-  uint64_t v, ret = 0;
++-  for(size_t i = 0; i < a.cols / sizeof(uint64_t); ++i, ++pa, ++pb)
+++  // Bit set count operation from
+++  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+++
+++  const int *pa = a.ptr<int32_t>();
+++  const int *pb = b.ptr<int32_t>();
+++
+++  int dist = 0;
+++
+++  for(int i = 0; i < 8; i++, pa++, pb++)
++   {
++-    v = *pa ^ *pb;
++-    v = v - ((v >> 1) & (uint64_t)~(uint64_t)0/3);
++-    v = (v & (uint64_t)~(uint64_t)0/15*3) + ((v >> 2) & 
++-      (uint64_t)~(uint64_t)0/15*3);
++-    v = (v + (v >> 4)) & (uint64_t)~(uint64_t)0/255*15;
++-    ret += (uint64_t)(v * ((uint64_t)~(uint64_t)0/255)) >> 
++-      (sizeof(uint64_t) - 1) * CHAR_BIT;
+++      unsigned  int v = *pa ^ *pb;
+++      v = v - ((v >> 1) & 0x55555555);
+++      v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+++      dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
++   }
++-  
++-  return ret;
+++
+++  return dist;
++   
++   // // If uint64_t is not defined in your system, you can try this 
++   // // portable approach
++-- 
++2.25.1
++
+diff --git a/include/DBoW2/BowVector.h b/include/DBoW2/BowVector.h
+index 670b635..1d31523 100644
+--- a/include/DBoW2/BowVector.h
++++ b/include/DBoW2/BowVector.h
+@@ -14,6 +14,9 @@
+ #include <map>
+ #include <vector>
+ 
++#include <boost/serialization/serialization.hpp>
++#include <boost/serialization/map.hpp>
++
+ namespace DBoW2 {
+ 
+ /// Id of words
+@@ -56,6 +59,13 @@ enum ScoringType
+ class BowVector: 
+ 	public std::map<WordId, WordValue>
+ {
++    friend class boost::serialization::access;
++    template<class Archive>
++    void serialize(Archive& ar, const int version)
++    {
++        ar & boost::serialization::base_object<std::map<WordId, WordValue> >(*this);
++    }
++
+ public:
+ 
+ 	/** 
+diff --git a/include/DBoW2/FORB.h b/include/DBoW2/FORB.h
+index 19e2544..78176d9 100644
+--- a/include/DBoW2/FORB.h
++++ b/include/DBoW2/FORB.h
+@@ -18,7 +18,7 @@
+ 
+ namespace DBoW2 {
+ 
+-/// Functions to manipulate BRIEF descriptors
++/// Functions to manipulate ORB descriptors
+ class FORB: protected FClass
+ {
+ public:
+@@ -44,8 +44,8 @@ public:
+    * @param b
+    * @return distance
+    */
+-  static double distance(const TDescriptor &a, const TDescriptor &b);
+-  
++  static int distance(const TDescriptor &a, const TDescriptor &b);
++
+   /**
+    * Returns a string version of the descriptor
+    * @param a descriptor
+diff --git a/include/DBoW2/FeatureVector.h b/include/DBoW2/FeatureVector.h
+index 08a91de..426f36d 100644
+--- a/include/DBoW2/FeatureVector.h
++++ b/include/DBoW2/FeatureVector.h
+@@ -15,12 +15,22 @@
+ #include <vector>
+ #include <iostream>
+ 
++#include <boost/serialization/serialization.hpp>
++#include <boost/serialization/map.hpp>
++
+ namespace DBoW2 {
+ 
+ /// Vector of nodes with indexes of local features
+ class FeatureVector: 
+   public std::map<NodeId, std::vector<unsigned int> >
+ {
++    friend class boost::serialization::access;
++    template<class Archive>
++    void serialize(Archive& ar, const int version)
++    {
++        ar & boost::serialization::base_object<std::map<NodeId, std::vector<unsigned int> > >(*this);
++    }
++
+ public:
+ 
+   /**
+diff --git a/include/DBoW2/TemplatedVocabulary.h b/include/DBoW2/TemplatedVocabulary.h
+index 53a0e30..28cd786 100644
+--- a/include/DBoW2/TemplatedVocabulary.h
++++ b/include/DBoW2/TemplatedVocabulary.h
+@@ -18,12 +18,14 @@
+ #include <string>
+ #include <algorithm>
+ #include <opencv2/core.hpp>
++#include <limits>
+ 
+ #include "FeatureVector.h"
+ #include "BowVector.h"
+ #include "ScoringObject.h"
+ 
+ #include <DUtils/DUtils.h>
++using namespace std;
+ 
+ namespace DBoW2 {
+ 
+@@ -223,7 +225,19 @@ public:
+    * @param type new scoring type
+    */
+   void setScoringType(ScoringType type);
+-  
++
++  /**
++   * Loads the vocabulary from a text file
++   * @param filename
++   */
++  bool loadFromTextFile(const std::string &filename);
++
++  /**
++   * Saves the vocabulary into a text file
++   * @param filename
++   */
++  void saveToTextFile(const std::string &filename) const;  
++
+   /**
+    * Saves the vocabulary into a file
+    * @param filename
+@@ -1314,6 +1328,122 @@ int TemplatedVocabulary<TDescriptor,F>::stopWords(double minWeight)
+ 
+ // --------------------------------------------------------------------------
+ 
++template<class TDescriptor, class F>
++bool TemplatedVocabulary<TDescriptor,F>::loadFromTextFile(const std::string &filename)
++{
++    ifstream f;
++    f.open(filename.c_str());
++	
++    if(f.eof())
++	return false;
++
++    m_words.clear();
++    m_nodes.clear();
++
++    string s;
++    getline(f,s);
++    stringstream ss;
++    ss << s;
++    ss >> m_k;
++    ss >> m_L;
++    int n1, n2;
++    ss >> n1;
++    ss >> n2;
++
++    if(m_k<0 || m_k>20 || m_L<1 || m_L>10 || n1<0 || n1>5 || n2<0 || n2>3)
++    {
++        std::cerr << "Vocabulary loading failure: This is not a correct text file!" << endl;
++	return false;
++    }
++    
++    m_scoring = (ScoringType)n1;
++    m_weighting = (WeightingType)n2;
++    createScoringObject();
++
++    // nodes
++    int expected_nodes =
++    (int)((pow((double)m_k, (double)m_L + 1) - 1)/(m_k - 1));
++    m_nodes.reserve(expected_nodes);
++
++    m_words.reserve(pow((double)m_k, (double)m_L + 1));
++
++    m_nodes.resize(1);
++    m_nodes[0].id = 0;
++    while(!f.eof())
++    {
++        string snode;
++        getline(f,snode);
++        stringstream ssnode;
++        ssnode << snode;
++
++        int nid = m_nodes.size();
++        m_nodes.resize(m_nodes.size()+1);
++	m_nodes[nid].id = nid;
++	
++        int pid ;
++        ssnode >> pid;
++        m_nodes[nid].parent = pid;
++        m_nodes[pid].children.push_back(nid);
++
++        int nIsLeaf;
++        ssnode >> nIsLeaf;
++
++        stringstream ssd;
++        for(int iD=0;iD<F::L;iD++)
++        {
++            string sElement;
++            ssnode >> sElement;
++            ssd << sElement << " ";
++	}
++        F::fromString(m_nodes[nid].descriptor, ssd.str());
++
++        ssnode >> m_nodes[nid].weight;
++
++        if(nIsLeaf>0)
++        {
++            int wid = m_words.size();
++            m_words.resize(wid+1);
++
++            m_nodes[nid].word_id = wid;
++            m_words[wid] = &m_nodes[nid];
++        }
++        else
++        {
++            m_nodes[nid].children.reserve(m_k);
++        }
++    }
++
++    return true;
++
++}
++
++// --------------------------------------------------------------------------
++
++template<class TDescriptor, class F>
++void TemplatedVocabulary<TDescriptor,F>::saveToTextFile(const std::string &filename) const
++{
++    fstream f;
++    f.open(filename.c_str(),ios_base::out);
++    f << m_k << " " << m_L << " " << " " << m_scoring << " " << m_weighting << endl;
++
++    for(size_t i=1; i<m_nodes.size();i++)
++    {
++        const Node& node = m_nodes[i];
++
++        f << node.parent << " ";
++        if(node.isLeaf())
++            f << 1 << " ";
++        else
++            f << 0 << " ";
++
++        f << F::toString(node.descriptor) << " " << (double)node.weight << endl;
++    }
++
++    f.close();
++}
++
++// --------------------------------------------------------------------------
++
+ template<class TDescriptor, class F>
+ void TemplatedVocabulary<TDescriptor,F>::save(const std::string &filename) const
+ {
+diff --git a/src/FORB.cpp b/src/FORB.cpp
+index 07e85c1..3237291 100644
+--- a/src/FORB.cpp
++++ b/src/FORB.cpp
+@@ -76,30 +76,26 @@ void FORB::meanValue(const std::vector<FORB::pDescriptor> &descriptors,
+ 
+ // --------------------------------------------------------------------------
+   
+-double FORB::distance(const FORB::TDescriptor &a, 
++int FORB::distance(const FORB::TDescriptor &a,
+   const FORB::TDescriptor &b)
+ {
+-  // Bit count function got from:
+-  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetKernighan
+-  // This implementation assumes that a.cols (CV_8U) % sizeof(uint64_t) == 0
+-  
+-  const uint64_t *pa, *pb;
+-  pa = a.ptr<uint64_t>(); // a & b are actually CV_8U
+-  pb = b.ptr<uint64_t>(); 
+-  
+-  uint64_t v, ret = 0;
+-  for(size_t i = 0; i < a.cols / sizeof(uint64_t); ++i, ++pa, ++pb)
++  // Bit set count operation from
++  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
++
++  const int *pa = a.ptr<int32_t>();
++  const int *pb = b.ptr<int32_t>();
++
++  int dist = 0;
++
++  for(int i = 0; i < 8; i++, pa++, pb++)
+   {
+-    v = *pa ^ *pb;
+-    v = v - ((v >> 1) & (uint64_t)~(uint64_t)0/3);
+-    v = (v & (uint64_t)~(uint64_t)0/15*3) + ((v >> 2) & 
+-      (uint64_t)~(uint64_t)0/15*3);
+-    v = (v + (v >> 4)) & (uint64_t)~(uint64_t)0/255*15;
+-    ret += (uint64_t)(v * ((uint64_t)~(uint64_t)0/255)) >> 
+-      (sizeof(uint64_t) - 1) * CHAR_BIT;
++      unsigned  int v = *pa ^ *pb;
++      v = v - ((v >> 1) & 0x55555555);
++      v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
++      dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
+   }
+-  
+-  return ret;
++
++  return dist;
+   
+   // // If uint64_t is not defined in your system, you can try this 
+   // // portable approach
+-- 
+2.25.1
+

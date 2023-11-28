@@ -1,0 +1,69 @@
+NXP Software Content Register
+
+--------------------------------------------
+BSP Packages
+--------------------------------------------
+
+Patches for:                 linux-imx.git
+Source Location:             https://github.com/nxp-imx/linux-imx
+Patch Location:              meta-imx8mp-ai-robot/recipes-kernel/linux-ai-robot/ai-robot
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Package Category:            BSP
+Description and comments:    The Linux kernel with i.MX-specific drivers
+Origin:                      NXP (GPL-2.0)
+                             kernel.org (GPL-2.0) - https://www.kernel.org/
+
+--------------------------------------------
+
+Patches for:                 uboot-imx.git
+Source Location:             https://github.com/nxp-imx/uboot-imx
+Patch Location:              meta-imx8mp-ai-robot/recipes-bsp/u-boot/ai-robot
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    Bootloader with i.MX-specific capabilities
+Origin:                      NXP (GPL-2.0)
+                             Das U-Boot - Universal Bootloader (GPL-2.0) - http://www.denx.de/wiki/U-Boot/WebHome
+                             Android Open Source Project (BSD-2-Clause) - https://source.android.com/
+                             zlib (zlib license) - http://www.zlib.net/
+
+--------------------------------------------
+
+Patches for:                 imx-atf.git
+Source Location:             https://github.com/nxp-imx/imx-atf
+Patch Location:              meta-imx8mp-ai-robot/recipes-bsp/imx-atf/ai-robot
+Outgoing License:            BSD-3-Clause 
+License File:                docs/license.rst
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    ARM Trusted Firmware
+Origin:                      NXP (BSD-3-clause)
+                             arm-trusted-firmware - ARM Limited (BSD-3-clause) - http://github.com/ARM-software/arm-trusted-firmware/
+
+--------------------------------------------
+
+Patches for:                 imx-mkimage.git
+Source Location:             https://github.com/nxp-imx/imx-mkimage
+Patch Location:              meta-imx8mp-ai-robot/recipes-bsp/imx-mkimage/ai-robot
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    Make Image BootLoader
+Origin:                      NXP (GPL-2.0)
+                             Das U-Boot - Universal Bootloader (GPL-2.0) - http://www.denx.de/wiki/U-Boot/WebHome
+--------------------------------------------
+
+Graphics Packages
+--------------------------------------------
+
+Package:                     isp-vvcam.git
+Patch Location:              meta-imx8mp-ai-robot/recipes-bsp/isp-imx/ai-robot
+Outgoing License:            GPL-2.0 
+License File:                vvcam/LICENSE
+Package Category:            Graphics
+Type of Content:             ISP Kernel Module source
+Description and comments:    Kernel Loadable Module for ISP
+Origin:                      VeriSilicon Holdings Co., Ltd. (GPL-2.0)

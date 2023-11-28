@@ -1,0 +1,153 @@
+From ec95312709f896c162f33bb422e710d057b30b43 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 13 Jun 2023 10:58:19 +0800
+Subject: [PATCH] Add member serialize in class BowVector and FeatureVector,
+ and fix the issue which C++17 does not allow dynamic exception specifications
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ src/BowVector.h     |  9 +++++++++
+ src/FeatureVector.h |  9 +++++++++
+ src/Vocabulary.cpp  | 19 +++++++++++++------
+ src/Vocabulary.h    | 14 ++++++++++----
+ 4 files changed, 41 insertions(+), 10 deletions(-)
+
+diff --git a/src/BowVector.h b/src/BowVector.h
+index 1c72de1..3b18fa3 100644
+--- a/src/BowVector.h
++++ b/src/BowVector.h
+@@ -14,6 +14,8 @@
+ #include <vector>
+ #include <iostream>
+ #include "exports.h"
++#include <boost/serialization/serialization.hpp>
++#include <boost/serialization/map.hpp>
+ #if _WIN32
+ #include <cstdint>
+ #endif
+@@ -59,6 +61,13 @@ enum ScoringType
+ class DBOW_API BowVector:
+ 	public std::map<WordId, WordValue>
+ {
++    friend class boost::serialization::access;
++    template<class Archive>
++    void serialize(Archive& ar, const int version)
++    {
++        ar & boost::serialization::base_object<std::map<WordId, WordValue> >(*this);
++    }
++
+ public:
+ 
+ 	/** 
+diff --git a/src/FeatureVector.h b/src/FeatureVector.h
+index f06bc1e..3328760 100644
+--- a/src/FeatureVector.h
++++ b/src/FeatureVector.h
+@@ -13,6 +13,8 @@
+ #include "BowVector.h"
+ #include <map>
+ #include <vector>
++#include <boost/serialization/serialization.hpp>
++#include <boost/serialization/map.hpp>
+ #include "exports.h"
+ namespace DBoW3 {
+ 
+@@ -20,6 +22,13 @@ namespace DBoW3 {
+ class  DBOW_API FeatureVector:
+   public std::map<NodeId, std::vector<unsigned int> >
+ {
++    friend class boost::serialization::access;
++    template<class Archive>
++    void serialize(Archive& ar, const int version)
++    {
++        ar & boost::serialization::base_object<std::map<NodeId, std::vector<unsigned int> > >(*this);
++    }
++
+ public:
+ 
+   /**
+diff --git a/src/Vocabulary.cpp b/src/Vocabulary.cpp
+index 9f0eff3..c622576 100644
+--- a/src/Vocabulary.cpp
++++ b/src/Vocabulary.cpp
+@@ -1176,9 +1176,11 @@ void Vocabulary::save(cv::FileStorage &f,
+   f << "}";
+ 
+ }
+-
++#if __cplusplus < 201703L // Standards below C++2017
+ void Vocabulary::toStream(  std::ostream &out_str, bool compressed) const throw(std::exception){
+-
++#else
++void Vocabulary::toStream(  std::ostream &out_str, bool compressed) noexcept(false){
++#endif // __cplusplus  
+     uint64_t sig=88877711233;//magic number describing the file
+     out_str.write((char*)&sig,sizeof(sig));
+     out_str.write((char*)&compressed,sizeof(compressed));
+@@ -1256,9 +1258,11 @@ void Vocabulary::toStream(  std::ostream &out_str, bool compressed) const throw(
+     }
+ }
+ 
+-
+-void Vocabulary:: load_fromtxt(const std::string &filename)throw(std::runtime_error){
+-
++#if __cplusplus < 201703L // Standards below C++2017
++void Vocabulary:: load_fromtxt(const std::string &filename) throw(std::runtime_error){
++#else
++void Vocabulary:: load_fromtxt(const std::string &filename) noexcept(false){
++#endif
+     std::ifstream ifile(filename);
+     if(!ifile)throw std::runtime_error("Vocabulary:: load_fromtxt  Could not open file for reading:"+filename);
+     int n1, n2;
+@@ -1332,8 +1336,11 @@ void Vocabulary:: load_fromtxt(const std::string &filename)throw(std::runtime_er
+            }
+        }
+ }
++#if __cplusplus < 201703L // Standards below C++2017
+ void Vocabulary::fromStream(  std::istream &str )   throw(std::exception){
+-
++#else
++void Vocabulary::fromStream(  std::istream &str )   noexcept(false){
++#endif
+ 
+     m_words.clear();
+     m_nodes.clear();
+diff --git a/src/Vocabulary.h b/src/Vocabulary.h
+index 7cf5f5a..a36166b 100644
+--- a/src/Vocabulary.h
++++ b/src/Vocabulary.h
+@@ -299,9 +299,13 @@ public:
+    */
+   int getDescritorType()const;
+   //io to-from a stream
++#if __cplusplus < 201703L // Standards below C++2017
+   void toStream(  std::ostream &str, bool compressed=true) const throw(std::exception);
+   void fromStream(  std::istream &str )   throw(std::exception);
+-
++#else
++  void toStream(  std::ostream &str, bool compressed=true) noexcept(false);
++  void fromStream(  std::istream &str ) noexcept(false);
++#endif // __cplusplus
+  protected:
+ 
+   ///  reference to descriptor
+@@ -432,11 +436,13 @@ protected:
+    * @param voc
+    */
+    DBOW_API friend std::ostream& operator<<(std::ostream &os,  const Vocabulary &voc);
+-
++#if __cplusplus < 201703L // Standards below C++2017
+    /**Loads from ORBSLAM txt files
+     */
+-   void load_fromtxt(const std::string &filename)throw(std::runtime_error);
+-
++   void load_fromtxt(const std::string &filename) throw(std::runtime_error);
++#else
++   void load_fromtxt(const std::string &filename) noexcept(false);
++#endif
+ protected:
+ 
+   /// Branching factor
+-- 
+2.35.1
+

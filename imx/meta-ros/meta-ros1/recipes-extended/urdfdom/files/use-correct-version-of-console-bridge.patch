@@ -1,0 +1,12 @@
+diff -Naur origin-urdfdom-debian-1.0.0-2/CMakeLists.txt modify-urdfdom-debian-1.0.0-2/CMakeLists.txt
+--- origin-urdfdom-debian-1.0.0-2/CMakeLists.txt	2020-10-20 09:52:16.146514810 +0800
++++ modify-urdfdom-debian-1.0.0-2/CMakeLists.txt	2020-10-20 09:50:53.070282767 +0800
+@@ -41,7 +41,7 @@
+   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+ endif()
+ 
+-find_package(console_bridge 0.3 REQUIRED)
++find_package(console_bridge 1.0 REQUIRED)
+ include_directories(SYSTEM ${console_bridge_INCLUDE_DIRS})
+ link_directories(${console_bridge_LIBRARY_DIRS})
+ 

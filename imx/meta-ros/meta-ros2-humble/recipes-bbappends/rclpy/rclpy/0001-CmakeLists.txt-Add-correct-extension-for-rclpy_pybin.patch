@@ -1,0 +1,43 @@
+From 3499cb927a4215e14167ffdd2c001d75df9d806d Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Sun, 23 Apr 2023 18:01:56 +0800
+Subject: [PATCH] CmakeLists.txt: Add correct extension for rclpy_pybind11
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a9966c0..01a334b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -14,11 +14,11 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+   add_compile_options(-Wall -Wextra)
+ endif()
+ 
++find_package(python_cmake_module REQUIRED)
++find_package(PythonExtra REQUIRED)
++
+ # Figure out Python3 debug/release before anything else can find_package it
+ if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+-  find_package(python_cmake_module REQUIRED)
+-  find_package(PythonExtra REQUIRED)
+-
+   # Force FindPython3 to use the debug interpreter where ROS 2 expects it
+   set(Python3_EXECUTABLE "${PYTHON_EXECUTABLE_DEBUG}")
+ endif()
+@@ -61,7 +61,9 @@ function(configure_build_install_location _library_name)
+   set_target_properties(${_library_name} PROPERTIES
+     # Use generator expression to avoid prepending a build type specific directory on Windows
+     LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}/test_rclpy>
+-    RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}/test_rclpy>)
++    RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_CURRENT_BINARY_DIR}/test_rclpy>
++    OUTPUT_NAME "${_library_name}${PythonExtra_EXTENSION_SUFFIX}"
++    SUFFIX "${PythonExtra_EXTENSION_EXTENSION}")
+ 
+   # Install library for actual use
+   install(TARGETS ${_library_name}
+-- 
+2.35.1
+

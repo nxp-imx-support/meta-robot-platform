@@ -1,0 +1,196 @@
+From fa7021cc63608ee3951614bb9b40a83f3d527fd0 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Thu, 10 Dec 2020 17:06:06 +0800
+Subject: [PATCH] Add support to OpenCV 4
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt                   | 2 +-
+ Examples/Monocular/mono_euroc.cc | 2 +-
+ Examples/Monocular/mono_kitti.cc | 2 +-
+ Examples/Monocular/mono_tum.cc   | 2 +-
+ Examples/RGB-D/rgbd_tum.cc       | 4 ++--
+ Examples/Stereo/stereo_euroc.cc  | 4 ++--
+ Examples/Stereo/stereo_kitti.cc  | 4 ++--
+ Thirdparty/DBoW2/CMakeLists.txt  | 2 +-
+ include/ORBextractor.h           | 2 +-
+ include/PnPsolver.h              | 4 ++++
+ src/FrameDrawer.cc               | 3 ++-
+ src/Sim3Solver.cc                | 2 +-
+ 12 files changed, 19 insertions(+), 14 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index cb76e8c..7a0121d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,7 +32,7 @@ LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
+ add_subdirectory("Thirdparty/DBoW2")
+ add_subdirectory("Thirdparty/g2o")
+ 
+-find_package(OpenCV 3.0 QUIET)
++find_package(OpenCV 4.0 QUIET)
+ if(NOT OpenCV_FOUND)
+    find_package(OpenCV 2.4.3 QUIET)
+    if(NOT OpenCV_FOUND)
+diff --git a/Examples/Monocular/mono_euroc.cc b/Examples/Monocular/mono_euroc.cc
+index db97e2e..13dd77b 100644
+--- a/Examples/Monocular/mono_euroc.cc
++++ b/Examples/Monocular/mono_euroc.cc
+@@ -70,7 +70,7 @@ int main(int argc, char **argv)
+     for(int ni=0; ni<nImages; ni++)
+     {
+         // Read image from file
+-        im = cv::imread(vstrImageFilenames[ni],CV_LOAD_IMAGE_UNCHANGED);
++        im = cv::imread(vstrImageFilenames[ni],cv::IMREAD_UNCHANGED);
+         double tframe = vTimestamps[ni];
+ 
+         if(im.empty())
+diff --git a/Examples/Monocular/mono_kitti.cc b/Examples/Monocular/mono_kitti.cc
+index f0bfa67..0f699eb 100644
+--- a/Examples/Monocular/mono_kitti.cc
++++ b/Examples/Monocular/mono_kitti.cc
+@@ -65,7 +65,7 @@ int main(int argc, char **argv)
+     for(int ni=0; ni<nImages; ni++)
+     {
+         // Read image from file
+-        im = cv::imread(vstrImageFilenames[ni],CV_LOAD_IMAGE_UNCHANGED);
++        im = cv::imread(vstrImageFilenames[ni],cv::IMREAD_UNCHANGED);
+         double tframe = vTimestamps[ni];
+ 
+         if(im.empty())
+diff --git a/Examples/Monocular/mono_tum.cc b/Examples/Monocular/mono_tum.cc
+index 93f7fc7..e6607ae 100644
+--- a/Examples/Monocular/mono_tum.cc
++++ b/Examples/Monocular/mono_tum.cc
+@@ -65,7 +65,7 @@ int main(int argc, char **argv)
+     for(int ni=0; ni<nImages; ni++)
+     {
+         // Read image from file
+-        im = cv::imread(string(argv[3])+"/"+vstrImageFilenames[ni],CV_LOAD_IMAGE_UNCHANGED);
++        im = cv::imread(string(argv[3])+"/"+vstrImageFilenames[ni],cv::IMREAD_UNCHANGED);
+         double tframe = vTimestamps[ni];
+ 
+         if(im.empty())
+diff --git a/Examples/RGB-D/rgbd_tum.cc b/Examples/RGB-D/rgbd_tum.cc
+index 6f69f61..ae6a3ba 100644
+--- a/Examples/RGB-D/rgbd_tum.cc
++++ b/Examples/RGB-D/rgbd_tum.cc
+@@ -77,8 +77,8 @@ int main(int argc, char **argv)
+     for(int ni=0; ni<nImages; ni++)
+     {
+         // Read image and depthmap from file
+-        imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],CV_LOAD_IMAGE_UNCHANGED);
+-        imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],CV_LOAD_IMAGE_UNCHANGED);
++        imRGB = cv::imread(string(argv[3])+"/"+vstrImageFilenamesRGB[ni],cv::IMREAD_UNCHANGED);
++        imD = cv::imread(string(argv[3])+"/"+vstrImageFilenamesD[ni],cv::IMREAD_UNCHANGED);
+         double tframe = vTimestamps[ni];
+ 
+         if(imRGB.empty())
+diff --git a/Examples/Stereo/stereo_euroc.cc b/Examples/Stereo/stereo_euroc.cc
+index 2ffc533..db052b3 100644
+--- a/Examples/Stereo/stereo_euroc.cc
++++ b/Examples/Stereo/stereo_euroc.cc
+@@ -116,8 +116,8 @@ int main(int argc, char **argv)
+     for(int ni=0; ni<nImages; ni++)
+     {
+         // Read left and right images from file
+-        imLeft = cv::imread(vstrImageLeft[ni],CV_LOAD_IMAGE_UNCHANGED);
+-        imRight = cv::imread(vstrImageRight[ni],CV_LOAD_IMAGE_UNCHANGED);
++        imLeft = cv::imread(vstrImageLeft[ni],cv::IMREAD_UNCHANGED);
++        imRight = cv::imread(vstrImageRight[ni],cv::IMREAD_UNCHANGED);
+ 
+         if(imLeft.empty())
+         {
+diff --git a/Examples/Stereo/stereo_kitti.cc b/Examples/Stereo/stereo_kitti.cc
+index d7f3d3f..477d373 100644
+--- a/Examples/Stereo/stereo_kitti.cc
++++ b/Examples/Stereo/stereo_kitti.cc
+@@ -66,8 +66,8 @@ int main(int argc, char **argv)
+     for(int ni=0; ni<nImages; ni++)
+     {
+         // Read left and right images from file
+-        imLeft = cv::imread(vstrImageLeft[ni],CV_LOAD_IMAGE_UNCHANGED);
+-        imRight = cv::imread(vstrImageRight[ni],CV_LOAD_IMAGE_UNCHANGED);
++        imLeft = cv::imread(vstrImageLeft[ni],cv::IMREAD_UNCHANGED);
++        imRight = cv::imread(vstrImageRight[ni],cv::IMREAD_UNCHANGED);
+         double tframe = vTimestamps[ni];
+ 
+         if(imLeft.empty())
+diff --git a/Thirdparty/DBoW2/CMakeLists.txt b/Thirdparty/DBoW2/CMakeLists.txt
+index 2e472d9..a6c87eb 100644
+--- a/Thirdparty/DBoW2/CMakeLists.txt
++++ b/Thirdparty/DBoW2/CMakeLists.txt
+@@ -24,7 +24,7 @@ set(SRCS_DUTILS
+   DUtils/Random.cpp
+   DUtils/Timestamp.cpp)
+ 
+-find_package(OpenCV 3.0 QUIET)
++find_package(OpenCV 4.0 QUIET)
+ if(NOT OpenCV_FOUND)
+    find_package(OpenCV 2.4.3 QUIET)
+    if(NOT OpenCV_FOUND)
+diff --git a/include/ORBextractor.h b/include/ORBextractor.h
+index 66e8e7a..268148a 100644
+--- a/include/ORBextractor.h
++++ b/include/ORBextractor.h
+@@ -23,7 +23,7 @@
+ 
+ #include <vector>
+ #include <list>
+-#include <opencv/cv.h>
++#include <opencv2/opencv.hpp>
+ 
+ 
+ namespace ORB_SLAM2
+diff --git a/include/PnPsolver.h b/include/PnPsolver.h
+index f92544f..6bb757e 100644
+--- a/include/PnPsolver.h
++++ b/include/PnPsolver.h
+@@ -55,6 +55,10 @@
+ #include "MapPoint.h"
+ #include "Frame.h"
+ 
++#include <opencv2/imgproc/types_c.h>
++#include <opencv2/opencv.hpp>
++using namespace cv;
++
+ namespace ORB_SLAM2
+ {
+ 
+diff --git a/src/FrameDrawer.cc b/src/FrameDrawer.cc
+index e23b86c..8b47980 100644
+--- a/src/FrameDrawer.cc
++++ b/src/FrameDrawer.cc
+@@ -23,6 +23,7 @@
+ 
+ #include <opencv2/core/core.hpp>
+ #include <opencv2/highgui/highgui.hpp>
++#include <opencv2/opencv.hpp>
+ 
+ #include<mutex>
+ 
+@@ -72,7 +73,7 @@ cv::Mat FrameDrawer::DrawFrame()
+     } // destroy scoped mutex -> release mutex
+ 
+     if(im.channels()<3) //this should be always true
+-        cvtColor(im,im,CV_GRAY2BGR);
++        cvtColor(im,im, cv::COLOR_GRAY2BGR);
+ 
+     //Draw
+     if(state==Tracking::NOT_INITIALIZED) //INITIALIZING
+diff --git a/src/Sim3Solver.cc b/src/Sim3Solver.cc
+index 4ad44ff..0ff7e73 100644
+--- a/src/Sim3Solver.cc
++++ b/src/Sim3Solver.cc
+@@ -214,7 +214,7 @@ cv::Mat Sim3Solver::find(vector<bool> &vbInliers12, int &nInliers)
+ 
+ void Sim3Solver::ComputeCentroid(cv::Mat &P, cv::Mat &Pr, cv::Mat &C)
+ {
+-    cv::reduce(P,C,1,CV_REDUCE_SUM);
++    cv::reduce(P,C,1,cv::REDUCE_SUM);
+     C = C/P.cols;
+ 
+     for(int i=0; i<P.cols; i++)
+-- 
+2.29.2
+

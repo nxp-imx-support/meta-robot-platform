@@ -1,0 +1,31 @@
+From 5ab4ae07847bb23387c881d042e4bb34bb6bcd79 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 18 Apr 2023 10:51:09 +0800
+Subject: [PATCH 1/2] CMakeLists.txt: fetch libyaml with bitbake fetcher
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 7 +------
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 05f5ff1..76ac4ca 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -61,12 +61,7 @@ macro(build_libyaml)
+   endif()
+   include(ExternalProject)
+   externalproject_add(libyaml-0.2.5
+-    GIT_REPOSITORY https://github.com/yaml/libyaml.git
+-    GIT_TAG 2c891fc7a770e8ba2fec34fc6b545c672beb37e6  # 0.2.5
+-    GIT_CONFIG advice.detachedHead=false
+-    # Suppress git update due to https://gitlab.kitware.com/cmake/cmake/-/issues/16419
+-    # See https://github.com/ament/uncrustify_vendor/pull/22 for details
+-    UPDATE_COMMAND ""
++    SOURCE_DIR ${CMAKE_SOURCE_DIR}/libyaml-upstream
+     TIMEOUT 600
+     CMAKE_ARGS
+       -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/libyaml_install
+-- 
+2.35.1
+

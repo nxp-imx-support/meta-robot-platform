@@ -1,0 +1,328 @@
+NXP Software Content Register
+
+Release Name:           i.MX Robot Platform L5.15.71 release
+Date Created:           Nov-2023
+Package License:        LA_OPT_NXP_Software_License v49 Sep 2023 - Additional distribution license granted - Section 2.3 applies
+License File:           LICENSE.txt
+Description:            i.MX Robot Platform with i.MX aibot navigation and vSLAM application
+
+--------------------------------------------
+BSP Packages
+--------------------------------------------
+
+Package:                     linux-imx.git
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    The Linux kernel with i.MX-specific drivers
+Release Location:            https://source.codeaurora.org/external/imx/linux-imx -b rel_imx_5.4.70_2.3.2
+Origin:                      NXP (GPL-2.0)
+                             kernel.org (GPL-2.0) - https://www.kernel.org/
+
+--------------------------------------------
+
+Package:                     uboot-imx.git
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    Bootloader with i.MX-specific capabilities
+Release Location:            https://source.codeaurora.org/external/imx/uboot-imx -b rel_imx_5.4.70_2.3.2
+Origin:                      NXP (GPL-2.0)
+                             Das U-Boot - Universal Bootloader (GPL-2.0) - http://www.denx.de/wiki/U-Boot/WebHome
+                             Android Open Source Project (BSD-2-Clause) - https://source.android.com/
+                             zlib (zlib license) - http://www.zlib.net/
+
+--------------------------------------------
+
+Package:                     imx-atf.git
+Outgoing License:            BSD-3-Clause 
+License File:                docs/license.rst
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    ARM Trusted Firmware
+Release Location:            https://source.codeaurora.org/external/imx/imx-atf -b rel_imx_5.4.70_2.3.2
+Origin:                      NXP (BSD-3-clause)
+                             arm-trusted-firmware - ARM Limited (BSD-3-clause) - http://github.com/ARM-software/arm-trusted-firmware/
+
+--------------------------------------------
+
+Package:                     imx-mkimage.git
+Outgoing License:            GPL-2.0 
+License File:                COPYING
+Package Category:            BSP
+Type of Content:             source
+Description and comments:    Make Image BootLoader
+Release Location:            https://source.codeaurora.org/external/imx/imx-mkimage -b rel_imx_5.4.70_2.3.2
+Origin:                      NXP (GPL-2.0)
+                             Das U-Boot - Universal Bootloader (GPL-2.0) - http://www.denx.de/wiki/U-Boot/WebHome
+--------------------------------------------
+--------------------------------------------
+M4 Processor Packages
+--------------------------------------------
+
+Package:                     imx8mm-m4-demo-2.8.0.1.bin
+Outgoing License:            LA_OPT_NXP_Software_License v13 June 2020 - Production Use - Section 2.3 applies 
+License File:                COPYING
+Package Category:            M4_Processor
+Type of Content:             binary
+Description and comments:    i.MX MCUXpresso SDK demo image on Cortex-M4 core
+Release Location:            Mirror
+Origin:                      NXP (proprietary)
+                             CMSIS Core Header files - ARM Limited (BSD-3-clause) - http://silver.arm.com
+                             CMSIS DSP Library - ARM Limited (BSD-3-clause) - http://silver.arm.com
+
+--------------------------------------------
+
+Package:                     imx8mq-m4-demo-2.8.0.1.bin
+Outgoing License:            LA_OPT_NXP_Software_License v13 June 2020 - Production Use - Section 2.3 applies 
+License File:                COPYING
+Package Category:            M4_Processor
+Type of Content:             binary
+Description and comments:    i.MX MCUXpresso SDK demo image on Cortex-M4 core
+Release Location:            Mirror
+Origin:                      NXP (proprietary)
+                             CMSIS Core Header files - ARM Limited (BSD-3-clause) - http://silver.arm.com
+                             CMSIS DSP Library - ARM Limited (BSD-3-clause) - http://silver.arm.com
+
+--------------------------------------------
+M7 Processor Packages
+--------------------------------------------
+
+Package:                     imx8mn-m7-demo-2.8.0.1.bin
+Outgoing License:            LA_OPT_NXP_Software_License v13 June 2020 - Production Use - Section 2.3 applies 
+License File:                COPYING
+Package Category:            M7_Processor
+Type of Content:             binary
+Description and comments:    i.MX MCUXpresso SDK demo image on Cortex-M7 core
+Release Location:            Mirror
+Origin:                      NXP (proprietary)
+                             CMSIS Core Header files - ARM Limited (BSD-3-clause) - http://silver.arm.com
+                             CMSIS DSP Library - ARM Limited (BSD-3-clause) - http://silver.arm.com
+
+--------------------------------------------
+
+Package:                     imx8mp-m7-demo-2.9.0.bin
+Outgoing License:            LA_OPT_NXP_Software_License v17 October 2020 - Production Use - Section 2.3 applies 
+License File:                COPYING
+Package Category:            M7_Processor
+Type of Content:             binary
+Description and comments:    i.MX MCUXpresso SDK demo image on Cortex-M7 core
+Release Location:            Mirror
+Origin:                      NXP (proprietary)
+                             ARM LIMITED (BSD-3-Clause)
+                             Real Time Engineers, Ltd (MIT) - https://aws.amazon.com/freertos/
+                             Mentor Graphics, Ltd. (BSD-3-Clause) - https://github.com/OpenAMP/open-amp/
+
+--------------------------------------------
+
+Patches for:               opencv
+Source Location:           http://github.com/opencv/opencv.git
+Patch Location:            imx/meta-robot/recipes-machine-vision/opencv
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          Graphics
+Description and comments:  The Open Computer Vision Library
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               ros
+Source Location:           https://github.com/ros
+Patch Location:            imx/meta-ros
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          Robot
+Description and comments:  The Robot Operating System (ROS) is a flexible framework for writing robot software.
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               xenomai
+Source Location:           git@source.denx.de:Xenomai/xenomai.git
+Patch Location:            imx/meta-robot/recipes-real-time/xenomai
+Outgoing License:          GPL-2.0
+License File:              COPYING
+Package Category:          BSP
+Description and comments:  Xenomai is a Free Software project in which engineers from a wide background collaborate to build a robust and resource-efficient real-time core for Linux© following the dual kernel approach, for applications with stringent latency requirements.
+Origin of patches:         NXP (GPL-2.0)
+
+--------------------------------------------
+
+Patches for:               openssl
+Source Location:           https://github.com/openssl/openssl
+Patch Location:            imx/meta-robot/recipes-security/openssl
+Outgoing License:          Apache-2.0
+License File:              LICENSE
+Package Category:          connectivity
+Description and comments:  OpenSSL is a robust, commercial-grade, and full-featured toolkit for the Transport Layer Security (TLS) and Secure Sockets Layer (SSL) protocols.
+Origin of patches:         NXP (Apache-2.0)
+
+--------------------------------------------
+
+Patches for:               openssl
+Source Location:           https://github.com/guanzhi/GmSSL/releases
+Patch Location:            imx/meta-robot/recipes-security/gmssl
+Outgoing License:          Apache-2.0  
+License File:              LICENSE
+Package Category:          connectivity
+Description and comments:  GmSSL is an open source cryptographic toolbox that supports SM2 / SM3 / SM4 / SM9 and other national secret algorithm.
+Origin of patches:         NXP (Apache-2.0)
+
+--------------------------------------------
+
+Patches for:               cryptodev-linux
+Source Location:           git://github.com/cryptodev-linux/cryptodev-linux
+Patch Location:            imx/meta-robot/recipes-security/cryptodev
+Outgoing License:          GPLv2 
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  Cryptodev-linux is a device that allows access to Linux kernel cryptographic drivers.
+Origin of patches:         NXP (GPLv2)
+
+--------------------------------------------
+
+Patches for:               ecryptfs
+Source Location:           https://launchpad.net/ecryptfs
+Patch Location:            imx/meta-robot/recipes-security/ecryptfs-utils
+Outgoing License:          GPLv2 
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  eCryptfs is a stacked cryptographic filesystem that ships in Linux kernel versions 2.6.19 and above. This package provides the mount helper and supporting libraries to perform key management and mount functions.
+Origin of patches:         NXP (GPLv2)
+
+--------------------------------------------
+
+Patches for:               keyutils
+Source Location:           http://people.redhat.com/dhowells/keyutils
+Patch Location:            imx/meta-robot/recipes-security/keyutils
+Outgoing License:          LGPLv2.1+ & GPLv2.0+ 
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  Utilities to control the kernel key management facility and to provide a mechanism by which the kernel call back to userspace to get a key instantiated.
+Origin of patches:         NXP (LGPLv2.1+ & GPLv2.0+)
+
+--------------------------------------------
+
+Patches for:               pangolin
+Source Location:           git://github.com/stevenlovegrove/Pangolin.git
+Patch Location:            imx/meta-robot/recipes-support/pangolin
+Outgoing License:          MIT 
+License File:              LICENSE
+Package Category:          Graphics
+Description and comments:  Pangolin is a lightweight portable rapid development library for managing OpenGL display / interaction and abstracting video input.
+Origin of patches:         NXP (MIT)
+
+--------------------------------------------
+
+Patches for:               IgH EtherCAT Master
+Source Location:           https://www.etherlab.org/en/ethercat/
+Patch Location:            imx/meta-robot/recipes-industrial-protocol/igh-ethercat
+Outgoing License:          GPLv2 
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  This is an open-source EtherCAT master implementation for Linux.
+Origin of patches:         NXP (GPLv2)
+
+--------------------------------------------
+
+Package:                   imx-mv
+Package Location:          meta-robot-platform/imx/meta-robot/recipes-slam-sdk/imx-mv
+Outgoing License:          LA_OPT_NXP_Software_License v34 February 2022 - Additional distribution license granted - Section 2.3 applies
+License File:              LICENSE
+Type of content:           Binary
+Description and comments:  i.MX Machine Vision Library
+Release Location:          Mirror
+Origin:                    NXP (proprietary)
+                           OpenCV (BSD-3-clause) - https://opencv.org/
+
+--------------------------------------------
+
+Patches for:               imx-hc-slam
+Source Location:           git://github.com/UZ-SLAMLab/ORB_SLAM3.git
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/imx-hc-slam
+Outgoing License:          GPL-3.0
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  imx-hc-slam is derived from ORB-SLAM3 with optimization, using ARM Neon/GPU OpenCL to accelerate ORB feature extraction
+Origin of patches:         NXP (GPL-3.0)
+
+--------------------------------------------
+
+Patches for:               DBow2
+Source Location:           https://github.com/dorian3d/DBoW2/
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/DBow2
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  DBoW2 is an improved version of the DBow library, an open source C++ library for indexing and converting images into a bag-of-word representation
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               DBow3
+Source Location:           git://github.com/rmsalinas/DBow3
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/DBow3
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  DBoW3 is an improved version of the DBow2 library, an open source C++ library for indexing and converting images into a bag-of-word representation
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               DLib
+Source Location:           https://github.com/dorian3d/DLib/
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/Dlib
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  DLib is a collection of C++ classes to solve common tasks in C++ programs
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               Open3D
+Source Location:           https://github.com/isl-org/Open3D/
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/Open3D
+Outgoing License:          MIT
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  Open3D is an open-source library that supports rapid development of software that deals with 3D data
+Origin of patches:         NXP (MIT)
+
+--------------------------------------------
+
+Patches for:               g2o
+Source Location:           https://github.com/RainerKuemmerle/g2o/
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/libg2o
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  g2o is an open-source C++ framework for optimizing graph-based nonlinear error functions
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               pcl
+Source Location:           git://github.com/PointCloudLibrary/pcl
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/pcl
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  The Point Cloud Library (or PCL) for point cloud processing
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------
+
+Patches for:               sophus
+Source Location:           git://github.com/yujinrobot-release/sophus-release
+Patch Location:            meta-robot-platform/imx/meta-robot/recipes-slam-sdk/sophus
+Outgoing License:          BSD-3-Clause
+License File:              LICENSE
+Package Category:          BSP
+Description and comments:  This is a c++ implementation of Lie groups commonly used for 2d and 3d geometric problems 
+Origin of patches:         NXP (BSD-3-Clause)
+
+--------------------------------------------

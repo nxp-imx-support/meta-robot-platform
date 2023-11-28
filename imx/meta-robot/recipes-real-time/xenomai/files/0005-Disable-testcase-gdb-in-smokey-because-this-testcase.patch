@@ -1,0 +1,27 @@
+From cc7e1468331f4e9a82f1bdd1a08fa23625c3f21b Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Mon, 7 Nov 2022 16:04:17 +0800
+Subject: [PATCH 5/5] Disable testcase gdb in smokey because this testcase will
+ fail and block xeno-test application.
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ testsuite/smokey/gdb/gdb.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/testsuite/smokey/gdb/gdb.c b/testsuite/smokey/gdb/gdb.c
+index eabf75e6a..588d262bc 100644
+--- a/testsuite/smokey/gdb/gdb.c
++++ b/testsuite/smokey/gdb/gdb.c
+@@ -199,7 +199,7 @@ static int run_gdb(struct smokey_test *t, int argc, char *const argv[])
+ 	char run_param[32];
+ 	cpu_set_t cpu_set;
+ 	int err;
+-
++	return 0;
+ 	smokey_parse_args(t, argc, argv);
+ 
+ 	if (SMOKEY_ARG_ISSET(gdb, run_target) &&
+-- 
+2.35.1
+

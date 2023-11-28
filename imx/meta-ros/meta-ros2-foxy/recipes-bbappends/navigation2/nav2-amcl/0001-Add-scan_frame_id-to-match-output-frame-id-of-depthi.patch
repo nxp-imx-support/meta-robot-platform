@@ -1,0 +1,67 @@
+From 436ca3dcbf0b3122026b9d573e2abb44339e639e Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 27 Oct 2023 15:04:47 +0800
+Subject: [PATCH] Add scan_frame_id to match output frame id of
+ depthimage_to_laserscan
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ include/nav2_amcl/amcl_node.hpp | 1 +
+ src/amcl_node.cpp               | 8 +++++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/include/nav2_amcl/amcl_node.hpp b/include/nav2_amcl/amcl_node.hpp
+index dc86baaf6..341b038cc 100644
+--- a/include/nav2_amcl/amcl_node.hpp
++++ b/include/nav2_amcl/amcl_node.hpp
+@@ -232,6 +232,7 @@ protected:
+   int max_particles_;
+   int min_particles_;
+   std::string odom_frame_id_;
++  std::string scan_frame_id_;
+   double pf_err_;
+   double pf_z_;
+   double alpha_fast_;
+diff --git a/src/amcl_node.cpp b/src/amcl_node.cpp
+index 9ea4a9b80..91998ef1d 100644
+--- a/src/amcl_node.cpp
++++ b/src/amcl_node.cpp
+@@ -155,6 +155,10 @@ AmclNode::AmclNode()
+     "odom_frame_id", rclcpp::ParameterValue(std::string("odom")),
+     "Which frame to use for odometry");
+ 
++  add_parameter(
++    "scan_frame_id", rclcpp::ParameterValue(std::string("base_laser")),
++    "Which frame to use for scan");
++
+   add_parameter("pf_err", rclcpp::ParameterValue(0.05));
+   add_parameter("pf_z", rclcpp::ParameterValue(0.99));
+ 
+@@ -1081,6 +1085,7 @@ AmclNode::initParameters()
+   get_parameter("max_particles", max_particles_);
+   get_parameter("min_particles", min_particles_);
+   get_parameter("odom_frame_id", odom_frame_id_);
++  get_parameter("scan_frame_id", scan_frame_id_);
+   get_parameter("pf_err", pf_err_);
+   get_parameter("pf_z", pf_z_);
+   get_parameter("recovery_alpha_fast", alpha_fast_);
+@@ -1106,6 +1111,7 @@ AmclNode::initParameters()
+   transform_tolerance_ = tf2::durationFromSec(tmp_tol);
+ 
+   odom_frame_id_ = nav2_util::strip_leading_slash(odom_frame_id_);
++  scan_frame_id_ = nav2_util::strip_leading_slash(scan_frame_id_);
+   base_frame_id_ = nav2_util::strip_leading_slash(base_frame_id_);
+   global_frame_id_ = nav2_util::strip_leading_slash(global_frame_id_);
+ 
+@@ -1246,7 +1252,7 @@ AmclNode::initMessageFilters()
+     rclcpp_node_.get(), scan_topic_, rmw_qos_profile_sensor_data);
+ 
+   laser_scan_filter_ = std::make_unique<tf2_ros::MessageFilter<sensor_msgs::msg::LaserScan>>(
+-    *laser_scan_sub_, *tf_buffer_, odom_frame_id_, 10, rclcpp_node_);
++    *laser_scan_sub_, *tf_buffer_, scan_frame_id_, 150, rclcpp_node_);
+ 
+   laser_scan_connection_ = laser_scan_filter_->registerCallback(
+     std::bind(
+-- 
+2.35.1
+

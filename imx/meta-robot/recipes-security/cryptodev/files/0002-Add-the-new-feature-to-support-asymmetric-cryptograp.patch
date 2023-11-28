@@ -1,0 +1,2653 @@
+From 92a2356e19ca5a8975e1cd7f036d7f2514c74c75 Mon Sep 17 00:00:00 2001
+From: xiaodong <xiaodong.zhang@nxp.com>
+Date: Wed, 8 Sep 2021 15:32:33 +0800
+Subject: [PATCH 2/2] Add the new feature to support asymmetric cryptography by
+ CAAM accelerating
+
+Signed-off-by: xiaodong <xiaodong.zhang@nxp.com>
+---
+ caampkc.h       |  764 ++++++++++++++++++++++++
+ cryptodev_int.h |   10 +
+ ioctl.c         |  167 +++++-
+ main.c          | 1476 +++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 2396 insertions(+), 21 deletions(-)
+ create mode 100644 caampkc.h
+
+diff --git a/caampkc.h b/caampkc.h
+new file mode 100644
+index 0000000..43ae263
+--- /dev/null
++++ b/caampkc.h
+@@ -0,0 +1,764 @@
++/*
++ * Public Key Cryptography Operations of CAAM
++ * Copyright (C) 2016-2017 NXP Semiconductor, Inc. All Rights Reserved
++ *
++ */
++ 
++#ifndef PK_CRYPTO_H
++#define PK_CRYPTO_H
++
++#ifdef CONFIG_64BIT
++#define caam_dma_addr_t u32
++#else
++#define caam_dma_addr_t dma_addr_t
++#endif
++
++
++/* Max size of any CAAM descriptor in 32-bit words, inclusive of header */
++#define MAX_CAAM_DESCSIZE	64
++
++#define PKHA_MAX_KEY_LENGTH			512
++
++enum pkha_montgomery_form {
++	PKHA_NormalValue = 0,
++	PKHA_MontgomeryFormat = 1,
++};
++
++enum pkha_f2m {
++	PKHA_Integer_Arith = 0,
++	PKHA_F2M_Arith = 1,
++};
++
++enum pkha_timing {
++	PKHA_NoTimingEqualized = 0,
++	PKHA_TimingEqualized = 1,
++};
++
++enum pkha_r2 {
++	PKHA_R2_Calculated = 0,
++	PKHA_R2_Input = 1,
++};
++
++
++typedef struct {
++	uint8_t *addr_p;
++	uint8_t *addr_q;
++	uint8_t *addr_e;
++	uint8_t *addr_n;
++	uint8_t *addr_d;
++	uint8_t *addr__d;
++	uint8_t *addr_d1;
++	uint8_t *addr_d2;
++	uint8_t *addr_c;
++	caam_dma_addr_t phy_addr_p;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_e;
++	caam_dma_addr_t phy_addr_n;
++	caam_dma_addr_t phy_addr_d;
++	caam_dma_addr_t phy_addr__d;
++	caam_dma_addr_t phy_addr_d1;
++	caam_dma_addr_t phy_addr_d2;
++	caam_dma_addr_t phy_addr_c;
++	uint32_t n_len;
++	uint32_t e_len;
++	uint32_t p_len;
++	u32 *desc;
++}pk_rsa_keygen_t;
++
++typedef struct {
++	uint8_t *addr_n;
++	uint8_t *addr_e;
++	uint8_t *addr_f;
++	uint8_t *addr_g;
++	caam_dma_addr_t phy_addr_n;
++	caam_dma_addr_t phy_addr_e;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_g;
++	uint32_t n_len;
++	uint32_t e_len;
++	uint32_t f_len;
++	uint32_t g_len;
++	u32 *desc;
++}pk_rsa_enc_t;
++
++typedef struct {
++	uint8_t *addr_n;
++	uint8_t *addr_d;
++	uint8_t *addr_f;
++	uint8_t *addr_g;
++	caam_dma_addr_t phy_addr_n;
++	caam_dma_addr_t phy_addr_d;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_g;
++	uint32_t n_len;
++	uint32_t d_len;
++	uint32_t f_len;
++	uint32_t g_len;
++	u32 *desc;
++}pk_rsa_dec_f1_t;
++
++typedef struct {
++	uint8_t *addr_p;
++	uint8_t *addr_q;
++	uint8_t *addr_d;
++	uint8_t *addr_f;
++	uint8_t *addr_g;
++	uint8_t *addr_tmp1;
++	uint8_t *addr_tmp2;
++	caam_dma_addr_t phy_addr_p;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_d;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_tmp1;
++	caam_dma_addr_t phy_addr_tmp2;
++	uint32_t n_len;
++	uint32_t d_len;
++	uint32_t p_len;
++	uint32_t q_len;
++	uint32_t f_len;
++	uint32_t g_len;
++	u32 *desc;
++}pk_rsa_dec_f2_t;
++
++typedef struct {
++	uint8_t *addr_p;
++	uint8_t *addr_q;
++	uint8_t *addr_c;
++	uint8_t *addr_dp;
++	uint8_t *addr_dq;
++	uint8_t *addr_f;
++	uint8_t *addr_g;
++	uint8_t *addr_tmp1;
++	uint8_t *addr_tmp2;
++	caam_dma_addr_t phy_addr_p;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_c;
++	caam_dma_addr_t phy_addr_dp;
++	caam_dma_addr_t phy_addr_dq;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_tmp1;
++	caam_dma_addr_t phy_addr_tmp2;
++	uint32_t n_len;
++	uint32_t p_len;
++	uint32_t q_len;
++	uint32_t f_len;
++	uint32_t g_len;
++	u32 *desc;
++}pk_rsa_dec_f3_t;
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_r;
++	uint8_t *addr_g;
++	uint8_t *addr_s;
++	uint8_t *addr_w;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_r;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_s;
++	caam_dma_addr_t phy_addr_w;
++	uint32_t l_len;
++	uint32_t n_len;
++	u32 *desc;
++}pk_dh_keygen_t;
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_r;
++	uint8_t *addr_g;
++	uint8_t *addr_s;
++	uint8_t *addr_w;
++	uint8_t *addr_ab;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_r;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_s;
++	caam_dma_addr_t phy_addr_w;
++	caam_dma_addr_t phy_addr_ab;
++	uint32_t l_len;
++	uint32_t n_len;
++	int arith_type;
++	u32 *desc;
++}pk_ecdh_keygen_t;
++
++typedef struct {
++	uint8_t *addr_q;	
++	uint8_t *addr_s;
++	uint8_t *addr_z;
++	uint8_t *addr_w;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_s;
++	caam_dma_addr_t phy_addr_z;
++	caam_dma_addr_t phy_addr_w;
++	uint32_t l_len;
++	uint32_t n_len;
++	u32 *desc;
++}pk_dh_t;
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_s;
++	uint8_t *addr_z;	
++	uint8_t *addr_w;
++	uint8_t *addr_ab;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_s;
++	caam_dma_addr_t phy_addr_w;
++	caam_dma_addr_t phy_addr_z;
++	caam_dma_addr_t phy_addr_ab;
++	uint32_t l_len;
++	uint32_t n_len;
++	int arith_type;
++	u32 *desc;
++}pk_ecdh_t;
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_r;
++	uint8_t *addr_g;
++	uint8_t *addr_s;
++	uint8_t *addr_f;
++	uint8_t *addr_c;
++	uint8_t *addr_d;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_r;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_s;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_c;
++	caam_dma_addr_t phy_addr_d;
++	uint32_t l_len;
++	uint32_t n_len;
++	u32 *desc;
++}pk_dsa_sign_t;
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_r;
++	uint8_t *addr_g;
++	uint8_t *addr_w;
++	uint8_t *addr_f;
++	uint8_t *addr_c;
++	uint8_t *addr_d;
++	uint8_t *addr_tmp;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_r;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_w;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_c;
++	caam_dma_addr_t phy_addr_d;
++	caam_dma_addr_t phy_addr_tmp;
++	uint32_t l_len;
++	uint32_t n_len;
++	u32 *desc;
++}pk_dsa_verify_t;
++
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_r;
++	uint8_t *addr_g;
++	uint8_t *addr_s;
++	uint8_t *addr_f;
++	uint8_t *addr_c;
++	uint8_t *addr_d;
++	uint8_t *addr_ab;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_r;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_s;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_c;
++	caam_dma_addr_t phy_addr_d;
++	caam_dma_addr_t phy_addr_ab;
++	uint32_t l_len;
++	uint32_t n_len;
++	int arith_type;
++	u32 *desc;
++}pk_ecdsa_sign_t;
++
++typedef struct {
++	uint8_t *addr_q;
++	uint8_t *addr_r;
++	uint8_t *addr_g;
++	uint8_t *addr_w;
++	uint8_t *addr_f;
++	uint8_t *addr_c;
++	uint8_t *addr_d;
++	uint8_t *addr_tmp;
++	uint8_t *addr_ab;
++	caam_dma_addr_t phy_addr_q;
++	caam_dma_addr_t phy_addr_r;
++	caam_dma_addr_t phy_addr_g;
++	caam_dma_addr_t phy_addr_w;
++	caam_dma_addr_t phy_addr_f;
++	caam_dma_addr_t phy_addr_c;
++	caam_dma_addr_t phy_addr_d;
++	caam_dma_addr_t phy_addr_tmp;
++	caam_dma_addr_t phy_addr_ab;
++	uint32_t l_len;
++	uint32_t n_len;
++	int arith_type;
++	u32 *desc;
++}pk_ecdsa_verify_t;
++
++enum curve_select {
++	P256 = 0x3,
++	P384 = 0x4,
++	P521 = 0x5
++};
++
++typedef struct {
++	uint8_t *addr_m;
++	uint8_t *addr_mes_rep;
++	uint8_t *addr_c;
++	uint8_t *addr_d;
++	caam_dma_addr_t phy_addr_m;
++	caam_dma_addr_t phy_addr_mes_rep;
++	caam_dma_addr_t phy_addr_c;
++	caam_dma_addr_t phy_addr_d;
++	uint32_t m_len;
++	int curve_select;
++	u32 *desc;
++}mp_sign_t;
++
++typedef struct {
++	uint8_t *addr_w;
++	caam_dma_addr_t phy_addr_w;
++	int curve_select;
++	u32 *desc;
++}mp_pubk_t;
++
++typedef int pkha_montgomery_form_t;
++typedef int pkha_f2m_t;
++typedef int pkha_r2_t;
++typedef int pkha_timing_t;
++
++typedef struct {
++    uint8_t *addr_a;
++	uint8_t *addr_b;
++	uint8_t *addr_n;
++	uint8_t *addr_e;
++	uint8_t *addr_result;
++	caam_dma_addr_t phy_addr_a;
++	caam_dma_addr_t phy_addr_b;
++	caam_dma_addr_t phy_addr_n;
++	caam_dma_addr_t phy_addr_e;
++	caam_dma_addr_t phy_addr_result;
++}pkha_addr_t;
++
++typedef struct {
++	uint32_t o_len;
++	uint32_t p_len;
++	uint32_t n_len;
++	uint8_t *addr_sm2group;
++	uint8_t *addr_xA, *addr_yA;
++	uint8_t *addr_e, *addr_r,  *addr_s;
++	uint8_t *addr_tmp1, *addr_tmp2;
++	uint8_t *addr_param, *tmp;
++	uint8_t *addr_p, *addr_R2p,*addr_a,*addr_b,*addr_xG,*addr_yG,*addr_n;
++	uint32_t sm2group_len;
++	caam_dma_addr_t phy_addr_tmp1, phy_addr_tmp2;
++	caam_dma_addr_t phy_addr_sm2group, phy_addr_param;
++	caam_dma_addr_t phy_addr_e, phy_addr_r, phy_addr_s;
++	caam_dma_addr_t phy_addr_xA, phy_addr_yA;
++	caam_dma_addr_t phy_addr_p, phy_addr_R2p, phy_addr_a, phy_addr_b ,phy_addr_xG, phy_addr_yG, phy_addr_n;
++	uint32_t param_len;	
++	u32 *desc;
++}pkha_sm2_verify_t;
++
++enum cv2x_curve_select {
++    CV2X_NISTP256_VERIFY = 313,
++    CV2X_BP_P256R1_VERIFY = 314,
++    CV2X_SM2_VERIFY = 315
++};
++
++typedef struct {
++	int curve_select;
++	union {
++		pk_ecdsa_verify_t nistp256_verify;
++		pk_ecdsa_verify_t bp256r1_verify;		
++		pkha_sm2_verify_t pkha_sm2_verify;
++	};
++} cv2x_verfiy_t;
++
++
++int caam_pk_status(void);
++struct device *caam_pkha_get_jrdev(void);
++int pk_dh_keygen_init(pk_dh_keygen_t *dh_keygen);
++int pk_dh_keygen_deinit(pk_dh_keygen_t *dh_keygen);
++int pk_dh_keygen(pk_dh_keygen_t *dh_keygen);
++int pk_ecdh_keygen_init(pk_ecdh_keygen_t *ecdh_keygen);
++int pk_ecdh_keygen_deinit(pk_ecdh_keygen_t *ecdh_keygen);
++int pk_ecdh_keygen(pk_ecdh_keygen_t *ecdh_keygen);
++int pk_dh_init(pk_dh_t *dh);
++int pk_dh_deinit(pk_dh_t *dh);
++int pk_dh(pk_dh_t *dh);
++int pk_ecdh_init(pk_ecdh_t *ecdh);
++int pk_ecdh_deinit(pk_ecdh_t *ecdh);
++int pk_ecdh(pk_ecdh_t *ecdh);
++int pk_dsa_sign_init(pk_dsa_sign_t *dsa_sign);
++int pk_dsa_sign_deinit(pk_dsa_sign_t *dsa_sign);
++int pk_dsa_sign(pk_dsa_sign_t *dsa_sign);
++int pk_dsa_verify_init(pk_dsa_verify_t *dsa_verify);
++int pk_dsa_verify_deinit(pk_dsa_verify_t *dsa_verify);
++int pk_dsa_verify(pk_dsa_verify_t *dsa_verify);
++int pk_ecdsa_sign_init(pk_ecdsa_sign_t *ecdsa_sign);
++int pk_ecdsa_sign_deinit(pk_ecdsa_sign_t *ecdsa_sign);
++int pk_ecdsa_sign(pk_ecdsa_sign_t *ecdsa_sign);
++int pk_ecdsa_verify_init(pk_ecdsa_verify_t *ecdsa_verify);
++int pk_ecdsa_verify_deinit(pk_ecdsa_verify_t *ecdsa_verify);
++int pk_ecdsa_verify(pk_ecdsa_verify_t *ecdsa_verify);
++int pk_rsa_keygen_init(pk_rsa_keygen_t *rsa_keygen);
++int pk_rsa_keygen_deinit(pk_rsa_keygen_t *rsa_keygen);
++int pk_rsa_keygen(pk_rsa_keygen_t *rsa_keygen);
++int pk_rsa_encrypt_init(pk_rsa_enc_t *rsa_enc);
++int pk_rsa_encrypt_deinit(pk_rsa_enc_t *rsa_enc);
++int pk_rsa_encrypt(pk_rsa_enc_t *rsa_enc);
++int pk_rsa_decrypt_f1_init(pk_rsa_dec_f1_t *rsa_dec);
++int pk_rsa_decrypt_f1_deinit(pk_rsa_dec_f1_t *rsa_dec);
++int pk_rsa_decrypt_f1(pk_rsa_dec_f1_t *rsa_dec);
++int pk_rsa_decrypt_f2_init(pk_rsa_dec_f2_t *rsa_dec);
++int pk_rsa_decrypt_f2_deinit(pk_rsa_dec_f2_t *rsa_dec);
++int pk_rsa_decrypt_f2(pk_rsa_dec_f2_t *rsa_dec);
++int pk_rsa_decrypt_f3_init(pk_rsa_dec_f3_t *rsa_dec);
++int pk_rsa_decrypt_f3_deinit(pk_rsa_dec_f3_t *rsa_dec);
++int pk_rsa_decrypt_f3(pk_rsa_dec_f3_t *rsa_dec);
++int mp_sign_init(mp_sign_t *mp_sign);
++int mp_sign_deinit(mp_sign_t *mp_sign);
++int mp_sign(mp_sign_t *mp_sign);
++int mp_get_pubk_init(mp_pubk_t *mp_pubk);
++int mp_get_pubk_deinit(mp_pubk_t *mp_pubk);
++int mp_get_pubk(mp_pubk_t *mp_pubk);
++int caam_cv2x_verify_init(cv2x_verfiy_t *cv2x_verify);
++int caam_cv2x_verify_deinit(cv2x_verfiy_t *cv2x_verify);
++int caam_cv2x_verify(cv2x_verfiy_t *cv2x_verify);
++
++/*!
++ * @brief perform modular addition - (a + b) mod n
++ *
++ * this function performs modular addition of (a + b) mod n, with either
++ * integer or binary polynomial (f2m) inputs.  in f2m form, this function is
++ * equivalent to a bitwise xor and is functionally the same as a subtraction.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param b second addend (integer or binary polynomial)
++ * @param size_b size of b in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ * @param arith_type type of arithmetic to perform (integer or f2m)
++ */
++int pkha_mod_add(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc);
++
++/*!
++ * @brief perform modular subtraction - (a - b) mod n
++ *
++ * this function performs modular subtraction of (a - b) mod n, with either
++ * integer or binary polynomial (f2m) inputs.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param b second addend (integer or binary polynomial)
++ * @param size_b size of b in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ */
++int pkha_mod_sub1(caam_dma_addr_t dma_addr_a,
++                          uint16_t size_a,
++                          caam_dma_addr_t dma_addr_b,
++                          uint16_t size_b,
++                          caam_dma_addr_t dma_addr_n,
++                          uint16_t size_n,
++                          caam_dma_addr_t dma_addr_out,
++                          uint16_t *result_size,
++                          u32 *desc);
++
++/*!
++ * @brief perform modular subtraction - (b - a) mod n
++ *
++ * this function performs modular subtraction of (b - a) mod n, with either
++ * integer or binary polynomial (f2m) inputs.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param b second addend (integer or binary polynomial)
++ * @param size_b size of b in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ */
++int pkha_mod_sub2(caam_dma_addr_t dma_addr_a,
++                          uint16_t size_a,
++                          caam_dma_addr_t dma_addr_b,
++                          uint16_t size_b,
++                          caam_dma_addr_t dma_addr_n,
++                          uint16_t size_n,
++                          caam_dma_addr_t dma_addr_out,
++                          uint16_t *result_size,
++                          u32 *desc);
++
++/*!
++ * @brief perform modular multiplication - (a x b) mod n
++ *
++ * this function performs modular multiplication with either integer or
++ * binary polynomial (f2m) inputs.  it can optionally specify whether inputs
++ * and/or outputs will be in montgomery form or not.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param b second addend (integer or binary polynomial)
++ * @param size_b size of b in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ * @param arith_type type of arithmetic to perform (integer or f2m)
++ * @param mont_in format of inputs
++ * @param mont_out format of output
++ * @param equal_time run the function time equalized or no timing equalization.
++ */
++int pkha_mod_mul(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         pkha_montgomery_form_t mont_in,
++                         pkha_montgomery_form_t mont_out,
++                         pkha_timing_t equal_time,
++                         u32 *desc);
++
++/*!
++ * @brief perform modular exponentiation - (a^e) mod n
++ *
++ * this function performs modular exponentiation with either integer or
++ * binary polynomial (f2m) inputs.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param e exponent
++ * @param size_e size of e in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ * @param arith_type type of arithmetic to perform (integer or f2m)
++ * @param equal_time run the function time equalized or no timing equalization.
++ */
++int pkha_mod_exp(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_e,
++                         uint16_t size_e,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         pkha_montgomery_form_t mont_in,
++                         pkha_timing_t equal_time,
++                         u32 *desc);
++
++/*!
++ * @brief perform modular reduction - (a) mod n
++ *
++ * this function performs modular reduction with either integer or
++ * binary polynomial (f2m) inputs.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ * @param arith_type type of arithmetic to perform (integer or f2m)
++ */
++int pkha_mod_red(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc);
++
++/*!
++ * @brief perform modular inversion - (a^-1) mod n
++ *
++ * this function performs modular inversion with either integer or
++ * binary polynomial (f2m) inputs.
++ *
++ * @param a first addend (integer or binary polynomial)
++ * @param size_a size of a in bytes
++ * @param n modulus
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ * @param arith_type type of arithmetic to perform (integer or f2m)
++ */
++int pkha_mod_inv(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc);
++
++/*!
++ * @brief calculate greatest common divisor - gcd (a, n)
++ *
++ * this function calculates the greatest common divisor of two inputs, with
++ * either integer or binary polynomial (f2m) inputs.
++ *
++ * @param a first value (must be smaller than n)
++ * @param size_a size of a in bytes
++ * @param n second value (must be non-zero)
++ * @param size_n size of n in bytes
++ * @param result output array to store result of operation
++ * @param result_size output size of operation in bytes
++ * @param arith_type type of arithmetic to perform (integer or f2m)
++ */
++int pkha_gcd(caam_dma_addr_t dma_addr_a,
++                      uint16_t size_a,
++                      caam_dma_addr_t dma_addr_n,
++                      uint16_t size_n,
++                      caam_dma_addr_t dma_addr_out,
++                      uint16_t *result_size,
++                      pkha_f2m_t arith_type,
++                      u32 *desc);
++
++/*!
++ * @brief execute miller-rabin primality test
++ *
++ * this function calculates whether or not a candidate prime number is likely
++ * to be prime.
++ *
++ * @param a initial random seed
++ * @param size_a size of a in bytes
++ * @param b number of trial runs
++ * @param size_b size of b in bytes
++ * @param n candidate prime integer
++ * @param size_n size of n in bytes
++ * @return true if the value is likely prime or false otherwise
++ */
++int pkha_primality_test(caam_dma_addr_t dma_addr_a,
++                                uint16_t size_a,
++                                caam_dma_addr_t dma_addr_b,
++                                uint16_t size_b,
++                                caam_dma_addr_t dma_addr_n,
++                                uint16_t size_n,
++                                bool *result,
++                                u32 *desc);
++
++/* mod_r2 : r^2 mod n */
++int pkha_mod_r2(caam_dma_addr_t dma_addr_n,
++                      uint16_t size_n,
++                      caam_dma_addr_t dma_addr_out,
++                      uint16_t *result_size,
++                      pkha_f2m_t arith_type,
++                      u32 *desc);
++
++/* clear memory */
++int pkha_clear_mem(uint8_t rammask,
++                      uint8_t quadmask,
++                      u32 *desc);
++
++/* copy memory */
++int pkha_copy_mem(uint8_t ramdest, uint8_t segdest,
++                      uint8_t ramsrc, uint8_t segsrc, uint8_t whichsize, u32 *desc);
++
++/* ecc point add */
++int pkha_ecc_add(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_r2_t r2_input,
++                         pkha_f2m_t arith_type,
++                         u32 *desc);
++
++/* ecc double point */
++int pkha_ecc_double(caam_dma_addr_t dma_addr_a,
++                         uint16_t size_a,
++                         caam_dma_addr_t dma_addr_b,
++                         uint16_t size_b,
++                         caam_dma_addr_t dma_addr_n,
++                         uint16_t size_n,
++                         caam_dma_addr_t dma_addr_out,
++                         uint16_t *result_size,
++                         pkha_f2m_t arith_type,
++                         u32 *desc);
++
++/* ecc point scaler */
++int pkha_ecc_mul(caam_dma_addr_t dma_addr_a,
++                        uint16_t size_a,
++                        caam_dma_addr_t dma_addr_b,
++                        uint16_t size_b,
++                        caam_dma_addr_t dma_addr_n,
++                        uint16_t size_n,
++                        caam_dma_addr_t dma_addr_e,
++                        uint16_t size_e,
++                        caam_dma_addr_t dma_addr_out,
++                        uint16_t *result_size,
++                        pkha_r2_t r2_input,
++                        pkha_f2m_t arith_type,
++                        pkha_timing_t equal_time,
++                        u32 *desc);
++
++/* ecc point scaler and check if a result is point at infinity*/
++int pkha_ecc_mul_is_infinity(caam_dma_addr_t dma_addr_a,
++                        uint16_t size_a,
++                        caam_dma_addr_t dma_addr_b,
++                        uint16_t size_b,
++                        caam_dma_addr_t dma_addr_n,
++                        uint16_t size_n,
++                        caam_dma_addr_t dma_addr_e,
++                        uint16_t size_e,
++                        caam_dma_addr_t dma_addr_out,
++                        uint16_t *result_size,
++                        pkha_r2_t r2_input,
++                        pkha_f2m_t arith_type,
++                        pkha_timing_t equal_time,
++                        u32 *desc);
++
++/* check if point is on the elliptic curve*/
++int pkha_ecc_check_point(caam_dma_addr_t dma_addr_a,
++                        uint16_t size_a,
++                        caam_dma_addr_t dma_addr_b,
++                        uint16_t size_b,
++                        caam_dma_addr_t dma_addr_n,
++                        uint16_t size_n,
++                        caam_dma_addr_t dma_addr_out,
++                        uint16_t *result_size,
++                        pkha_r2_t r2_input,
++                        pkha_f2m_t arith_type,
++                        u32 *desc);
++
++
++#endif /* PK_CRYPTO_H */
++ 
++
+diff --git a/cryptodev_int.h b/cryptodev_int.h
+index d7660fa..ab3d355 100644
+--- a/cryptodev_int.h
++++ b/cryptodev_int.h
+@@ -19,6 +19,7 @@
+ #include <linux/scatterlist.h>
+ #include <crypto/cryptodev.h>
+ #include <crypto/aead.h>
++#include "caampkc.h"
+ 
+ #define PFX "cryptodev: "
+ #define dprintk(level, severity, format, a...)			\
+@@ -106,6 +107,13 @@ struct kernel_crypt_auth_op {
+ 	struct mm_struct *mm;
+ };
+ 
++struct kernel_crypt_kop {
++	struct crypt_kop kop;
++
++	struct task_struct *task;
++	struct mm_struct *mm;
++};
++
+ /* auth */
+ 
+ int kcaop_from_user(struct kernel_crypt_auth_op *kcop,
+@@ -114,6 +122,7 @@ int kcaop_to_user(struct kernel_crypt_auth_op *kcaop,
+ 		struct fcrypt *fcr, void __user *arg);
+ int crypto_auth_run(struct fcrypt *fcr, struct kernel_crypt_auth_op *kcaop);
+ int crypto_run(struct fcrypt *fcr, struct kernel_crypt_op *kcop);
++int crypto_pk_run(struct fcrypt *fcr, struct kernel_crypt_kop *kckop);
+ 
+ #include <cryptlib.h>
+ 
+@@ -132,6 +141,7 @@ struct csession {
+ 	unsigned int readonly_pages;
+ 	struct page **pages;
+ 	struct scatterlist *sg;
++	cv2x_verfiy_t *cv2x_verify;
+ };
+ 
+ struct csession *crypto_get_session_by_sid(struct fcrypt *fcr, uint32_t sid);
+diff --git a/ioctl.c b/ioctl.c
+index 95481d4..f78c8ef 100644
+--- a/ioctl.c
++++ b/ioctl.c
+@@ -53,6 +53,7 @@
+ #include "zc.h"
+ #include "version.h"
+ #include "cipherapi.h"
++#include "caampkc.h"
+ 
+ MODULE_AUTHOR("Nikos Mavrogiannopoulos <nmav@gnutls.org>");
+ MODULE_DESCRIPTION("CryptoDev driver");
+@@ -101,7 +102,17 @@ struct crypt_priv {
+ 
+ /* cryptodev's own workqueue, keeps crypto tasks from disturbing the force */
+ static struct workqueue_struct *cryptodev_wq;
+-
++/*
++* With composite aead ciphers, only ckey is used and it can cover all the
++* structure space; otherwise both keys may be used simultaneously but they
++* are confined to their spaces
++*/
++struct cryptodev_keys {
++	uint8_t ckey[CRYPTO_CIPHER_MAX_KEY_LEN];
++	uint8_t mkey[CRYPTO_HMAC_MAX_KEY_LEN];
++	/* padding space for aead keys */
++	uint8_t pad[RTA_SPACE(sizeof(struct crypto_authenc_key_param))];
++};
+ /* Prepare session for future use. */
+ static int
+ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+@@ -111,32 +122,42 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 	const char *alg_name = NULL;
+ 	const char *hash_name = NULL;
+ 	int hmac_mode = 1, stream = 0, aead = 0;
+-	/*
+-	 * With composite aead ciphers, only ckey is used and it can cover all the
+-	 * structure space; otherwise both keys may be used simultaneously but they
+-	 * are confined to their spaces
+-	 */
+-	struct {
+-		uint8_t ckey[CRYPTO_CIPHER_MAX_KEY_LEN];
+-		uint8_t mkey[CRYPTO_HMAC_MAX_KEY_LEN];
+-		/* padding space for aead keys */
+-		uint8_t pad[RTA_SPACE(sizeof(struct crypto_authenc_key_param))];
+-	} keys;
++	struct cryptodev_keys *keys = NULL;
++	
+ 
+ 	/* Does the request make sense? */
+-	if (unlikely(!sop->cipher && !sop->mac)) {
++	
++	if (unlikely(!sop->cipher && !sop->mac && !sop->pk_cipher)) {	
+ 		ddebug(1, "Both 'cipher' and 'mac' unset.");
+ 		return -EINVAL;
+ 	}
+ 
+ 	switch (sop->cipher) {
+ 	case 0:
++		break;	
++	case CRYPTO_DES_ECB:
++        alg_name = "ecb(des)";
+ 		break;
+ 	case CRYPTO_DES_CBC:
+ 		alg_name = "cbc(des)";
++		break;	
++	case CRYPTO_DES_CFB:
++		alg_name = "cfb(des)";
++		break;
++	case CRYPTO_DES_OFB:
++		alg_name = "ofb(des)";
++		break;
++	case CRYPTO_3DES_ECB:
++   		alg_name = "ecb(des3_ede)";
+ 		break;
+ 	case CRYPTO_3DES_CBC:
+ 		alg_name = "cbc(des3_ede)";
++		break;	
++	case CRYPTO_3DES_CFB:
++		alg_name = "cfb(des3_ede)";
++		break;
++	case CRYPTO_3DES_OFB:
++		alg_name = "ofb(des3_ede)";
+ 		break;
+ 	case CRYPTO_BLF_CBC:
+ 		alg_name = "cbc(blowfish)";
+@@ -146,6 +167,12 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 		break;
+ 	case CRYPTO_AES_ECB:
+ 		alg_name = "ecb(aes)";
++		break;	
++	case CRYPTO_AES_CFB128:
++		alg_name = "cfb(aes)";
++		break;
++	case CRYPTO_AES_OFB:
++		alg_name = "ofb(aes)";
+ 		break;
+ 	case CRYPTO_CAMELLIA_CBC:
+ 		alg_name = "cbc(camellia)";
+@@ -169,6 +196,11 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 		stream = 0;
+ 		aead = 1;
+ 		break;
++    case CRYPTO_AES_XTS:
++		alg_name = "xts(aes)";
++		stream = 1;
++		aead = 1;
++		break;
+ 	case CRYPTO_NULL:
+ 		alg_name = "ecb(cipher_null)";
+ 		stream = 1;
+@@ -243,7 +275,10 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 	ses_new = kzalloc(sizeof(*ses_new), GFP_KERNEL);
+ 	if (!ses_new)
+ 		return -ENOMEM;
+-
++	
++	if (0 != sop->pk_cipher) 
++		goto asymmetric_cipher;
++	keys = kzalloc(sizeof(*keys), GFP_KERNEL | GFP_DMA);
+ 	/* Set-up crypto transform. */
+ 	if (alg_name) {
+ 		unsigned int keylen;
+@@ -254,11 +289,11 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 			goto session_error;
+ 		}
+ 
+-		ret = cryptodev_get_cipher_key(keys.ckey, sop, aead);
++		ret = cryptodev_get_cipher_key(keys->ckey, sop, aead);
+ 		if (unlikely(ret < 0))
+ 			goto session_error;
+ 
+-		ret = cryptodev_cipher_init(&ses_new->cdata, alg_name, keys.ckey,
++		ret = cryptodev_cipher_init(&ses_new->cdata, alg_name, keys->ckey,
+ 						keylen, stream, aead);
+ 		if (ret < 0) {
+ 			ddebug(1, "Failed to load cipher for %s", alg_name);
+@@ -275,14 +310,14 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 			goto session_error;
+ 		}
+ 
+-		if (sop->mackey && unlikely(copy_from_user(keys.mkey, sop->mackey,
++		if (sop->mackey && unlikely(copy_from_user(keys->mkey, sop->mackey,
+ 					    sop->mackeylen))) {
+ 			ret = -EFAULT;
+ 			goto session_error;
+ 		}
+ 
+ 		ret = cryptodev_hash_init(&ses_new->hdata, hash_name, hmac_mode,
+-							keys.mkey, sop->mackeylen);
++							keys->mkey, sop->mackeylen);
+ 		if (ret != 0) {
+ 			ddebug(1, "Failed to load hash for %s", hash_name);
+ 			ret = -EINVAL;
+@@ -311,11 +346,33 @@ crypto_create_session(struct fcrypt *fcr, struct session_op *sop)
+ 		goto session_error;
+ 	}
+ 
++asymmetric_cipher:
+ 	/* put the new session to the list */
+ 	get_random_bytes(&ses_new->sid, sizeof(ses_new->sid));
+ 	mutex_init(&ses_new->sem);
+ 
+ 	mutex_lock(&fcr->sem);
++	if (CRYPTO_CV2X_NISTP256_VERIFY == sop->pk_cipher || CRYPTO_CV2X_BP_P256R1_VERIFY == sop->pk_cipher \
++		|| CRYPTO_CV2X_SM2_VERIFY == sop->pk_cipher) {
++		ses_new->cv2x_verify = kzalloc(sizeof(cv2x_verfiy_t), GFP_KERNEL);
++		if (!(ses_new->cv2x_verify)) {
++			ddebug(0, "Memory error");
++			ret = -ENOMEM;
++			goto session_error;
++		}			
++		if (CRYPTO_CV2X_NISTP256_VERIFY == sop->pk_cipher)
++			ses_new->cv2x_verify->curve_select = CV2X_NISTP256_VERIFY;
++		else if (CRYPTO_CV2X_BP_P256R1_VERIFY == sop->pk_cipher)
++			ses_new->cv2x_verify->curve_select = CV2X_BP_P256R1_VERIFY ;
++		else if (CRYPTO_CV2X_SM2_VERIFY == sop->pk_cipher)
++			ses_new->cv2x_verify->curve_select = CV2X_SM2_VERIFY;
++		ret = caam_cv2x_verify_init(ses_new->cv2x_verify);
++		if ( 0 != ret) {
++			ddebug(1, "Failed to caam_cv2x_verify_init %d", sop->pk_cipher);
++			ret = -EINVAL;
++			goto session_error;
++		}
++	}
+ restart:
+ 	list_for_each_entry(ses_ptr, &fcr->list, entry) {
+ 		/* Check for duplicate SID */
+@@ -332,6 +389,8 @@ restart:
+ 
+ 	/* Fill in some values for the user. */
+ 	sop->ses = ses_new->sid;
++	if (NULL != keys)
++		kfree(keys);
+ 	return 0;
+ 
+ 	/* We count on ses_new to be initialized with zeroes
+@@ -344,6 +403,8 @@ session_error:
+ 	kfree(ses_new->sg);
+ 	kfree(ses_new->pages);
+ 	kfree(ses_new);
++	if (NULL != keys)
++		kfree(keys);
+ 	return ret;
+ }
+ 
+@@ -363,6 +424,12 @@ crypto_destroy_session(struct csession *ses_ptr)
+ 	kfree(ses_ptr->sg);
+ 	mutex_unlock(&ses_ptr->sem);
+ 	mutex_destroy(&ses_ptr->sem);
++	mutex_unlock(&ses_ptr->sem);
++	mutex_destroy(&ses_ptr->sem);
++	if (0 != ses_ptr->cv2x_verify) {
++		caam_cv2x_verify_deinit(ses_ptr->cv2x_verify);
++		kfree(ses_ptr->cv2x_verify);
++	}
+ 	kfree(ses_ptr);
+ }
+ 
+@@ -759,6 +826,26 @@ static int kcop_to_user(struct kernel_crypt_op *kcop,
+ 	return 0;
+ }
+ 
++static int kcpkop_from_user(struct kernel_crypt_kop *kckop,
++                  struct fcrypt *fcr, void __user *arg)
++{
++    if (unlikely(copy_from_user(&kckop->kop, arg, sizeof(kckop->kop))))
++        return -EFAULT;
++	kckop->task = current;
++	kckop->mm = current->mm;
++    return 0;
++}
++
++static int kcpkop_to_user(struct kernel_crypt_kop *kckop,
++			struct fcrypt *fcr, void __user *arg)
++{
++    if (unlikely(copy_to_user(arg, &kckop->kop, sizeof(kckop->kop)))) {
++        derr(1, "Cannot copy to userspace");
++        return -EFAULT;
++    }
++    return 0;
++}
++
+ static inline void tfm_info_to_alg_info(struct alg_info *dst, struct crypto_tfm *tfm)
+ {
+ 	snprintf(dst->cra_name, CRYPTODEV_MAX_ALG_NAME,
+@@ -848,6 +935,7 @@ cryptodev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg_)
+ 	struct session_op sop;
+ 	struct kernel_crypt_op kcop;
+ 	struct kernel_crypt_auth_op kcaop;
++	struct kernel_crypt_kop kckop;
+ 	struct crypt_priv *pcr = filp->private_data;
+ 	struct fcrypt *fcr;
+ 	struct session_info_op siop;
+@@ -855,7 +943,7 @@ cryptodev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg_)
+ 	struct cphash_op cphop;
+ #endif
+ 	uint32_t ses;
+-	int ret, fd;
++	int ret, fd, asymfeat;	
+ 
+ 	if (unlikely(!pcr))
+ 		BUG();
+@@ -864,7 +952,29 @@ cryptodev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg_)
+ 
+ 	switch (cmd) {
+ 	case CIOCASYMFEAT:
+-		return put_user(0, p);
++		if( 0 != caam_pk_status())
++		{			
++			asymfeat = CRF_MOD_EXP | CRF_MOD_EXP_CRT | CRF_MOD_ADD | CRF_MOD_SUB1 | CRF_MOD_SUB2 | CRF_MOD_MUL | CRF_MOD_RED | CRF_MOD_INV
++			 | CRF_GCD | CRF_PRIMALITY_TEST | CRF_MOD_R2 | CRF_CLEAR_MEM | CRF_COPY_MEM | CRF_ECC_ADD | CRF_ECC_DOUBLE| CRF_ECC_MUL | CRF_DSA_SIGN
++			 | CRF_DSA_VERIFY | CRF_ECDSA_SIGN | CRF_ECDSA_VERIFY | CRF_DH_COMPUTE_KEY | CRF_ECDH_COMPUTE_KEY | CRF_DH_GENERATE_KEY | CRF_ECDH_GENERATE_KEY 
++			 | CRF_RSA_PUBLIC | CRF_RSA_PRIVATE | CRF_RSA_GENERATE_KEY | CRF_MP_SIGN | CRF_MP_GET_PUBK | CRF_CV2X_VERIFY;
++			return put_user(asymfeat, p);
++		}
++		else
++			return put_user(0, p);
++	case CIOCKEY:
++		if (unlikely(ret = kcpkop_from_user(&kckop, fcr, arg))) {
++			dwarning(1, "Error copying from user");
++			return ret;
++		}
++	
++		ret = crypto_pk_run(fcr, &kckop);
++		if (unlikely(ret)) {
++			dwarning(1, "Error in crypto_pk_run");
++			return ret;
++		}
++	
++		return kcpkop_to_user(&kckop, fcr, arg);
+ 	case CRIOGET:
+ 		fd = clonefd(filp);
+ 		ret = put_user(fd, p);
+@@ -1053,7 +1163,8 @@ cryptodev_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg_)
+ 	struct session_op sop;
+ 	struct compat_session_op compat_sop;
+ 	struct kernel_crypt_op kcop;
+-	int ret;
++	struct kernel_crypt_kop kckop;
++	int ret , asymfeat;
+ 
+ 	if (unlikely(!pcr))
+ 		BUG();
+@@ -1095,6 +1206,20 @@ cryptodev_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg_)
+ 			return ret;
+ 
+ 		return compat_kcop_to_user(&kcop, fcr, arg);
++		
++	case CIOCKEY:
++		if (unlikely(ret = kcpkop_from_user(&kckop, fcr, arg))) {
++			dwarning(1, "Error copying from user");
++			return ret;
++		}
++	
++		ret = crypto_pk_run(fcr, &kckop);
++		if (unlikely(ret)) {
++			dwarning(1, "Error in crypto_pk_run");
++			return ret;
++		}
++	
++		return kcpkop_to_user(&kckop, fcr, arg);
+ #ifdef ENABLE_ASYNC
+ 	case COMPAT_CIOCASYNCCRYPT:
+ 		if (unlikely(ret = compat_kcop_from_user(&kcop, fcr, arg)))
+diff --git a/main.c b/main.c
+index 4c8a757..4e0c8ea 100644
+--- a/main.c
++++ b/main.c
+@@ -41,6 +41,7 @@
+ #include <linux/pagemap.h>
+ #include <linux/poll.h>
+ #include <linux/uaccess.h>
++#include <linux/dma-mapping.h>
+ #include <crypto/cryptodev.h>
+ #include <crypto/scatterwalk.h>
+ #include <linux/scatterlist.h>
+@@ -48,6 +49,7 @@
+ #include "zc.h"
+ #include "cryptlib.h"
+ #include "version.h"
++#include "caampkc.h"
+ 
+ /* This file contains the traditional operations of encryption
+  * and hashing of /dev/crypto.
+@@ -265,3 +267,1477 @@ out_unlock:
+ 	crypto_put_session(ses_ptr);
+ 	return ret;
+ }
++#define QUAD_BYTES            	72
++
++int crypto_pk_run(struct fcrypt *fcr, struct kernel_crypt_kop *kckop)
++{
++	struct csession *ses_ptr = NULL;
++	struct crypt_kop *kop = &kckop->kop;
++	int ret = 0;
++	int i = 0, j = 0;
++	uint8_t *addr_p[CRK_MAXPARAM] = {NULL};
++	caam_dma_addr_t phy_addr_p[CRK_MAXPARAM] = {0};
++	struct device *jrdev;
++	int status = 0;
++	uint32_t *desc = NULL;
++	pkha_r2_t r2_input;
++	pkha_f2m_t arith_type;
++	pkha_montgomery_form_t mont_in;
++	pkha_montgomery_form_t mont_out;
++	pkha_timing_t equal_time;
++	bool prime_result = false;
++	uint16_t out_size_byte = 0;
++
++	if (unlikely(kop->crk_op >= CRK_ALGORITHM_ALL)) {
++		dwarning(1, "invalid operation op=%u", kop->crk_op);
++		return -EINVAL;
++	}
++
++	/* this also enters ses_ptr->sem */
++	ses_ptr = crypto_get_session_by_sid(fcr, kop->ses);
++	if (unlikely(!ses_ptr)) {
++		derr(1, "invalid session ID=0x%08X", kop->ses);
++		return -EINVAL;
++	}
++	if (likely(kop->crk_op >= CRK_DSA_SIGN)) {
++		switch (kop->crk_op) {
++		case CRK_DSA_SIGN:
++			{
++				pk_dsa_sign_t dsa_sign;
++
++				memset(&dsa_sign, 0, sizeof(pk_dsa_sign_t));
++				if (unlikely(kop->crk_iparams < 5)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					dsa_sign.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					dsa_sign.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_dsa_sign_init(&dsa_sign);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_dsa_sign_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				if (unlikely(copy_from_user(dsa_sign.addr_q, kop->crk_param[0].crp_p, dsa_sign.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_dsa_sign;
++		        }
++				if (unlikely(copy_from_user(dsa_sign.addr_r, kop->crk_param[1].crp_p, dsa_sign.n_len))) {
++					derr(1, "copy_from_user error r \n");
++		            ret = -EFAULT;
++		            goto out_dsa_sign;
++		        }
++				if (unlikely(copy_from_user(dsa_sign.addr_g, kop->crk_param[2].crp_p, dsa_sign.l_len))) {
++					derr(1, "copy_from_user error g \n");
++		            ret = -EFAULT;
++		            goto out_dsa_sign;
++		        }
++				if (unlikely(copy_from_user(dsa_sign.addr_s, kop->crk_param[3].crp_p, dsa_sign.n_len))) {
++					derr(1, "copy_from_user error s \n");
++		            ret = -EFAULT;
++		            goto out_dsa_sign;
++		        }
++				if (unlikely(copy_from_user(dsa_sign.addr_f, kop->crk_param[4].crp_p, dsa_sign.n_len))) {
++					derr(1, "copy_from_user error f \n");
++		            ret = -EFAULT;
++		            goto out_dsa_sign;
++		        }
++				ret = pk_dsa_sign(&dsa_sign);
++				if(unlikely(0 != ret))
++					derr(1, "DSA sign error code =0x%08X", ret);
++				else {
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, dsa_sign.addr_c, dsa_sign.n_len)))
++						ret = -EFAULT;
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, dsa_sign.addr_d, dsa_sign.n_len)))
++						ret = -EFAULT;
++				}
++			out_dsa_sign:
++				pk_dsa_sign_deinit(&dsa_sign);
++			}
++			break;
++		case CRK_DSA_VERIFY:
++			{
++				pk_dsa_verify_t dsa_verify;
++
++				memset(&dsa_verify, 0, sizeof(pk_dsa_verify_t));
++				if (unlikely(kop->crk_iparams < 7)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					dsa_verify.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					dsa_verify.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_dsa_verify_init(&dsa_verify);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_dsa_verify_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				if (unlikely(copy_from_user(dsa_verify.addr_q, kop->crk_param[0].crp_p, dsa_verify.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++		        }
++				if (unlikely(copy_from_user(dsa_verify.addr_r, kop->crk_param[1].crp_p, dsa_verify.n_len))) {
++					derr(1, "copy_from_user error r \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++		        }
++				if (unlikely(copy_from_user(dsa_verify.addr_g, kop->crk_param[2].crp_p, dsa_verify.l_len))) {
++					derr(1, "copy_from_user error g \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++		        }
++				if (unlikely(copy_from_user(dsa_verify.addr_w, kop->crk_param[3].crp_p, dsa_verify.l_len))) {
++					derr(1, "copy_from_user error w \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++		        }
++				if (unlikely(copy_from_user(dsa_verify.addr_f, kop->crk_param[4].crp_p, dsa_verify.n_len))) {
++					derr(1, "copy_from_user error f \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++				}
++				if (unlikely(copy_from_user(dsa_verify.addr_c, kop->crk_param[5].crp_p, dsa_verify.n_len))) {
++					derr(1, "copy_from_user error c \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++				}
++				if (unlikely(copy_from_user(dsa_verify.addr_d, kop->crk_param[6].crp_p, dsa_verify.n_len))) {
++					derr(1, "copy_from_user error d \n");
++		            ret = -EFAULT;
++		            goto out_dsa_verify;
++				}
++				ret = pk_dsa_verify(&dsa_verify);
++				if(false == ret)
++					kop->crk_status = 0;
++				else {
++					kop->crk_status = 1;
++					ret = 0;
++				}
++					
++			out_dsa_verify:
++				pk_dsa_verify_deinit(&dsa_verify);
++			}
++			break;
++		case CRK_ECDSA_SIGN:
++			{
++				pk_ecdsa_sign_t ecdsa_sign;
++
++				memset(&ecdsa_sign, 0, sizeof(pk_ecdsa_sign_t));
++				if (unlikely(kop->crk_iparams < 6)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					ecdsa_sign.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					ecdsa_sign.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_ecdsa_sign_init(&ecdsa_sign);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_ecdsa_sign_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				if (unlikely(copy_from_user(ecdsa_sign.addr_q, kop->crk_param[0].crp_p, ecdsa_sign.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_sign;
++		        }
++				if (unlikely(copy_from_user(ecdsa_sign.addr_r, kop->crk_param[1].crp_p, ecdsa_sign.n_len))) {
++					derr(1, "copy_from_user error r \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_sign;
++		        }
++				if (unlikely(copy_from_user(ecdsa_sign.addr_g, kop->crk_param[2].crp_p, ecdsa_sign.l_len * 2))) {
++					derr(1, "copy_from_user error g \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_sign;
++		        }
++				if (unlikely(copy_from_user(ecdsa_sign.addr_s, kop->crk_param[3].crp_p, ecdsa_sign.n_len))) {
++					derr(1, "copy_from_user error s \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_sign;
++		        }
++				if (unlikely(copy_from_user(ecdsa_sign.addr_f, kop->crk_param[4].crp_p, ecdsa_sign.n_len))) {
++					derr(1, "copy_from_user error f \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_sign;
++		        }
++				if (unlikely(copy_from_user(ecdsa_sign.addr_ab, kop->crk_param[5].crp_p, ecdsa_sign.l_len * 2))) {
++					derr(1, "copy_from_user error a,b \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_sign;
++		        }
++				if (KCOP_FLAG_INTEGER_ARITH & kop->crk_flags)
++					ecdsa_sign.arith_type = PKHA_Integer_Arith;
++				else
++					ecdsa_sign.arith_type = PKHA_F2M_Arith;
++				ret = pk_ecdsa_sign(&ecdsa_sign);
++				if(unlikely(0 != ret))
++					derr(1, "ECDSA sign error code =0x%08X", ret);
++				else {
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, ecdsa_sign.addr_c, ecdsa_sign.n_len)))
++						ret = -EFAULT;
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, ecdsa_sign.addr_d, ecdsa_sign.n_len)))
++						ret = -EFAULT;
++				}
++			out_ecdsa_sign:
++				pk_ecdsa_sign_deinit(&ecdsa_sign);
++			}
++			break;
++		case CRK_ECDSA_VERIFY:
++			{
++				pk_ecdsa_verify_t ecdsa_verify;
++
++				memset(&ecdsa_verify, 0, sizeof(pk_ecdsa_verify_t));
++				if (unlikely(kop->crk_iparams < 8)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					ecdsa_verify.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					ecdsa_verify.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_ecdsa_verify_init(&ecdsa_verify);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_ecdsa_verify_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				if (unlikely(copy_from_user(ecdsa_verify.addr_q, kop->crk_param[0].crp_p, ecdsa_verify.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++		        }
++				if (unlikely(copy_from_user(ecdsa_verify.addr_r, kop->crk_param[1].crp_p, ecdsa_verify.n_len))) {
++					derr(1, "copy_from_user error r \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++		        }
++				if (unlikely(copy_from_user(ecdsa_verify.addr_g, kop->crk_param[2].crp_p, ecdsa_verify.l_len * 2))) {
++					derr(1, "copy_from_user error g \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++		        }
++				if (unlikely(copy_from_user(ecdsa_verify.addr_w, kop->crk_param[3].crp_p, ecdsa_verify.l_len * 2))) {
++					derr(1, "copy_from_user error w \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++		        }
++				if (unlikely(copy_from_user(ecdsa_verify.addr_f, kop->crk_param[4].crp_p, ecdsa_verify.n_len))) {
++					derr(1, "copy_from_user error f \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++				}
++				if (unlikely(copy_from_user(ecdsa_verify.addr_c, kop->crk_param[5].crp_p, ecdsa_verify.n_len))) {
++					derr(1, "copy_from_user error c \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++				}
++				if (unlikely(copy_from_user(ecdsa_verify.addr_d, kop->crk_param[6].crp_p, ecdsa_verify.n_len))) {
++					derr(1, "copy_from_user error d \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++				}
++				if (unlikely(copy_from_user(ecdsa_verify.addr_ab, kop->crk_param[7].crp_p, ecdsa_verify.l_len * 2))) {
++					derr(1, "copy_from_user error a,b \n");
++		            ret = -EFAULT;
++		            goto out_ecdsa_verify;
++				}
++				if (KCOP_FLAG_INTEGER_ARITH & kop->crk_flags)
++					ecdsa_verify.arith_type = PKHA_Integer_Arith;
++				else
++					ecdsa_verify.arith_type = PKHA_F2M_Arith;
++				ret = pk_ecdsa_verify(&ecdsa_verify);
++				if (false == ret)
++					kop->crk_status = 0;
++				else {
++					kop->crk_status = 1;
++					ret = 0;
++				}
++					
++			out_ecdsa_verify:
++				pk_ecdsa_verify_deinit(&ecdsa_verify);
++			}
++			break;
++		case CRK_DH_COMPUTE_KEY:
++			{
++				pk_dh_t dh;
++
++				memset(&dh, 0, sizeof(pk_dh_t));
++				if (unlikely(kop->crk_iparams < 3)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					dh.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					dh.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_dh_init(&dh);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_dh_init error \n");
++				    ret = -EFAULT;
++					goto out_unlock;
++				}
++
++				if (unlikely(copy_from_user(dh.addr_q, kop->crk_param[0].crp_p, dh.l_len))) {
++					derr(1, "copy_from_user q error \n");
++				    ret = -EFAULT;
++				    goto out_dh;
++				}
++				if (unlikely(copy_from_user(dh.addr_s, kop->crk_param[1].crp_p, dh.n_len))) {
++					derr(1, "copy_from_user s error \n");
++				    ret = -EFAULT;
++				    goto out_dh;
++				}
++				if (unlikely(copy_from_user(dh.addr_w, kop->crk_param[2].crp_p, dh.l_len))) {
++					derr(1, "copy_from_user w error \n");
++				    ret = -EFAULT;
++				    goto out_dh;
++				}
++				ret = pk_dh(&dh);
++				if(unlikely(0 != ret))
++					derr(1, "DH error code =0x%08X", ret);
++				else {
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, dh.addr_z, (kop->crk_param[kop->crk_iparams].crp_nbits)/8)))
++						ret = -EFAULT;
++				}
++			out_dh:
++				pk_dh_deinit(&dh);
++			}
++			break;
++		case CRK_ECDH_COMPUTE_KEY:
++			{
++				pk_ecdh_t ecdh;
++
++				memset(&ecdh, 0, sizeof(pk_ecdh_t));
++				if (unlikely(kop->crk_iparams < 4)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					ecdh.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					ecdh.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_ecdh_init(&ecdh);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_ecdh_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				
++				if (unlikely(copy_from_user(ecdh.addr_q, kop->crk_param[0].crp_p, ecdh.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh;
++		        }
++				if (unlikely(copy_from_user(ecdh.addr_s, kop->crk_param[1].crp_p, ecdh.n_len))) {
++					derr(1, "copy_from_user s error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh;
++		        }
++				if (unlikely(copy_from_user(ecdh.addr_w, kop->crk_param[2].crp_p, ecdh.l_len * 2))) {
++					derr(1, "copy_from_user w error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh;
++		        }
++				if (unlikely(copy_from_user(ecdh.addr_ab, kop->crk_param[3].crp_p, ecdh.l_len * 2))) {
++					derr(1, "copy_from_user a,b error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh;
++		        }
++				if (KCOP_FLAG_INTEGER_ARITH & kop->crk_flags)
++					ecdh.arith_type = PKHA_Integer_Arith;
++				else
++					ecdh.arith_type = PKHA_F2M_Arith;
++				ret = pk_ecdh(&ecdh);
++				if(unlikely(0 != ret))
++					derr(1, "ECDH error code =0x%08X", ret);
++				else {
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, ecdh.addr_z, ecdh.l_len)))
++						ret = -EFAULT;
++				}
++			out_ecdh:
++				pk_ecdh_deinit(&ecdh);
++			}
++			break;
++		case CRK_DH_GENERATE_KEY:
++			{
++				pk_dh_keygen_t dh_keygen;
++				
++				memset(&dh_keygen, 0, sizeof(dh_keygen));
++				if (unlikely(kop->crk_iparams < 3)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					dh_keygen.l_len = (kop->crk_param[0].crp_nbits)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					dh_keygen.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_dh_keygen_init(&dh_keygen);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_dh_keygen_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				
++				if (unlikely(copy_from_user(dh_keygen.addr_q, kop->crk_param[0].crp_p, dh_keygen.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_dh_keygen;
++		        }
++				if (unlikely(copy_from_user(dh_keygen.addr_r, kop->crk_param[1].crp_p, dh_keygen.n_len))) {
++					derr(1, "copy_from_user r error \n");
++		            ret = -EFAULT;
++		            goto out_dh_keygen;
++		        }
++				if (unlikely(copy_from_user(dh_keygen.addr_g, kop->crk_param[2].crp_p, dh_keygen.l_len))) {
++					derr(1, "copy_from_user g error \n");
++		            ret = -EFAULT;
++		            goto out_dh_keygen;
++		        }
++				ret = pk_dh_keygen(&dh_keygen);
++				if(unlikely(0 != ret))
++					derr(1, "DH generate key error code =0x%08X", ret);
++				else {
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, dh_keygen.addr_s, dh_keygen.n_len)))
++						ret = -EFAULT;
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, dh_keygen.addr_w, dh_keygen.l_len)))
++						ret = -EFAULT;
++				}
++			out_dh_keygen:
++				pk_dh_keygen_deinit(&dh_keygen);
++			}
++			break;
++		case CRK_ECDH_GENERATE_KEY:
++			{
++				pk_ecdh_keygen_t ecdh_keygen;
++
++				memset(&ecdh_keygen, 0, sizeof(pk_ecdh_keygen_t));
++				if (unlikely(kop->crk_iparams < 4)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x3FF))
++					ecdh_keygen.l_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "L more than 10 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0x7F))
++					ecdh_keygen.n_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "N more than 7 bits \n");
++                
++				ret = pk_ecdh_keygen_init(&ecdh_keygen);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_ecdh_keygen_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				
++				if (unlikely(copy_from_user(ecdh_keygen.addr_q, kop->crk_param[0].crp_p, ecdh_keygen.l_len))) {
++					derr(1, "copy_from_user q error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh_keygen;
++		        }
++				if (unlikely(copy_from_user(ecdh_keygen.addr_r, kop->crk_param[1].crp_p, ecdh_keygen.n_len))) {
++					derr(1, "copy_from_user r error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh_keygen;
++		        }
++				if (unlikely(copy_from_user(ecdh_keygen.addr_g, kop->crk_param[2].crp_p, ecdh_keygen.l_len * 2))) {
++					derr(1, "copy_from_user g error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh_keygen;
++		        }
++				if (unlikely(copy_from_user(ecdh_keygen.addr_ab, kop->crk_param[3].crp_p, ecdh_keygen.l_len * 2))) {
++					derr(1, "copy_from_user g error \n");
++		            ret = -EFAULT;
++		            goto out_ecdh_keygen;
++		        }
++				if (KCOP_FLAG_INTEGER_ARITH & kop->crk_flags)
++					ecdh_keygen.arith_type = PKHA_Integer_Arith;
++				else
++					ecdh_keygen.arith_type = PKHA_F2M_Arith;
++				ret = pk_ecdh_keygen(&ecdh_keygen);
++				if(unlikely(0 != ret))
++					derr(1, "ECDH generate key error code =0x%08X", ret);
++				else {
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, ecdh_keygen.addr_s, ecdh_keygen.n_len)))
++						ret = -EFAULT;
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, ecdh_keygen.addr_w, ecdh_keygen.l_len * 2)))
++						ret = -EFAULT;
++				}
++			out_ecdh_keygen:
++				pk_ecdh_keygen_deinit(&ecdh_keygen);
++			}
++			break;
++		case CRK_RSA_PUBLIC:
++			{
++				pk_rsa_enc_t rsa_enc;
++
++				memset(&rsa_enc, 0, sizeof(pk_rsa_enc_t));
++				if (unlikely(kop->crk_iparams < 3)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0xFFF))
++					rsa_enc.n_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "#n more than 12 bits \n");
++				if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0xFFF))
++					rsa_enc.e_len = (kop->crk_param[1].crp_nbits + 7)/8;
++				else
++					derr(1, "#e more than 12 bits \n");				
++				if (likely((kop->crk_param[2].crp_nbits + 7)/8 <= 0xFFF))
++					rsa_enc.f_len = (kop->crk_param[2].crp_nbits + 7)/8;
++				else
++					derr(1, "#f more than 12 bits \n");
++				rsa_enc.g_len = (kop->crk_param[0].crp_nbits + 7)/8;
++                
++				ret = pk_rsa_encrypt_init(&rsa_enc);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_rsa_encrypt_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;		
++				}
++				if (unlikely(copy_from_user(rsa_enc.addr_n, kop->crk_param[0].crp_p, rsa_enc.n_len))) {
++					derr(1, "copy_from_user n error \n");
++		            ret = -EFAULT;
++		            goto out_rsa_enc;
++		        }
++				if (unlikely(copy_from_user(rsa_enc.addr_e, kop->crk_param[1].crp_p, rsa_enc.e_len))) {
++					derr(1, "copy_from_user e error \n");
++		            ret = -EFAULT;
++		            goto out_rsa_enc;
++		        }
++				if (unlikely(copy_from_user(rsa_enc.addr_f, kop->crk_param[2].crp_p, rsa_enc.f_len))) {
++					derr(1, "copy_from_user f error \n");
++		            ret = -EFAULT;
++		            goto out_rsa_enc;
++		        }
++				ret = pk_rsa_encrypt(&rsa_enc);
++				if(unlikely(0 != ret)) {
++					derr(1, "RSA encrypt error code =0x%08X", ret);
++					goto out_rsa_enc;
++				}
++				if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, rsa_enc.addr_g, rsa_enc.g_len)))
++					ret = -EFAULT;
++                kop->crk_param[kop->crk_iparams].crp_nbits = rsa_enc.g_len * 8;				  
++			out_rsa_enc:
++				pk_rsa_encrypt_deinit(&rsa_enc);
++			}
++			break;
++		case CRK_RSA_PRIVATE:
++			{
++				if (unlikely(kop->crk_iparams < 3)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}				
++				if (kop->crk_iparams == 3) {
++					pk_rsa_dec_f1_t rsa_dec_f1;
++
++					memset(&rsa_dec_f1, 0, sizeof(pk_rsa_dec_f1_t));
++					if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f1.n_len = (kop->crk_param[0].crp_nbits + 7)/8;
++					else
++						derr(1, "#n more than 12 bits \n");
++					if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f1.d_len = (kop->crk_param[1].crp_nbits + 7)/8;
++					else
++						derr(1, "#d more than 12 bits \n");				
++					if (unlikely((kop->crk_param[2].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f1.g_len = (kop->crk_param[2].crp_nbits + 7)/8;
++					else
++						derr(1, "#f more than 12 bits \n");
++					rsa_dec_f1.f_len = (kop->crk_param[0].crp_nbits + 7)/8;
++                    
++					ret = pk_rsa_decrypt_f1_init(&rsa_dec_f1);
++					if(unlikely(0 != ret)) {
++						derr(1, "pk_rsa_decrypt_f1_init error \n");
++						ret = -EFAULT;
++						goto out_unlock;		
++					}
++					if (unlikely(copy_from_user(rsa_dec_f1.addr_n, kop->crk_param[0].crp_p, rsa_dec_f1.n_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f1.addr_d, kop->crk_param[1].crp_p, rsa_dec_f1.d_len))) {
++						derr(1, "copy_from_user d error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f1.addr_g, kop->crk_param[2].crp_p, rsa_dec_f1.g_len))) {
++						derr(1, "copy_from_user g error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec;
++					}
++					ret = pk_rsa_decrypt_f1(&rsa_dec_f1);
++					if(unlikely(0 != ret)) {
++						derr(1, "RSA decrypt error code =0x%08X", ret);
++						goto out_rsa_dec;
++					}
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, rsa_dec_f1.addr_f, rsa_dec_f1.f_len)))
++						ret = -EFAULT;
++					kop->crk_param[kop->crk_iparams].crp_nbits = rsa_dec_f1.f_len * 8;
++	out_rsa_dec:
++					pk_rsa_decrypt_f1_deinit(&rsa_dec_f1);
++                }
++                else if (kop->crk_iparams == 4) {
++                    pk_rsa_dec_f2_t rsa_dec_f2;
++
++					memset(&rsa_dec_f2, 0, sizeof(pk_rsa_dec_f2_t));
++                    rsa_dec_f2.n_len = kop->crk_pad1; /*n len*/
++					if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f2.p_len = (kop->crk_param[0].crp_nbits + 7)/8;
++					else
++						derr(1, "#p more than 12 bits \n");
++					if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f2.q_len = (kop->crk_param[1].crp_nbits + 7)/8;
++					else
++						derr(1, "#q more than 12 bits \n");
++					if (likely((kop->crk_param[2].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f2.d_len = (kop->crk_param[2].crp_nbits + 7)/8;
++					else
++						derr(1, "#d more than 12 bits \n");				
++					if (unlikely((kop->crk_param[3].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f2.g_len = (kop->crk_param[3].crp_nbits + 7)/8;
++					else
++						derr(1, "#f more than 12 bits \n");
++                    rsa_dec_f2.f_len = rsa_dec_f2.n_len;
++                    
++                    ret = pk_rsa_decrypt_f2_init(&rsa_dec_f2);
++					if(unlikely(0 != ret)) {
++						derr(1, "pk_rsa_decrypt_f2_init error \n");
++						ret = -EFAULT;
++						goto out_unlock;		
++					}
++					if (unlikely(copy_from_user(rsa_dec_f2.addr_p, kop->crk_param[0].crp_p, rsa_dec_f2.p_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f2;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f2.addr_q, kop->crk_param[1].crp_p, rsa_dec_f2.q_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f2;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f2.addr_d, kop->crk_param[2].crp_p, rsa_dec_f2.d_len))) {
++						derr(1, "copy_from_user d error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f2;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f2.addr_g, kop->crk_param[3].crp_p, rsa_dec_f2.g_len))) {
++						derr(1, "copy_from_user g error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f2;
++					}
++					ret = pk_rsa_decrypt_f2(&rsa_dec_f2);
++					if(unlikely(0 != ret)) {
++						derr(1, "RSA decrypt error code =0x%08X", ret);
++						goto out_rsa_dec_f2;
++					}
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, rsa_dec_f2.addr_f, rsa_dec_f2.f_len)))
++						ret = -EFAULT;
++					kop->crk_param[kop->crk_iparams].crp_nbits = rsa_dec_f2.f_len * 8;
++out_rsa_dec_f2:
++					pk_rsa_decrypt_f2_deinit(&rsa_dec_f2);
++                }
++                else if (kop->crk_iparams == 6) {
++					pk_rsa_dec_f3_t rsa_dec_f3;
++
++					memset(&rsa_dec_f3, 0, sizeof(pk_rsa_dec_f3_t));
++					rsa_dec_f3.n_len = kop->crk_pad1; /*n len*/
++					if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f3.p_len = (kop->crk_param[0].crp_nbits + 7)/8;
++					else
++						derr(1, "#p more than 12 bits \n");
++					if (likely((kop->crk_param[1].crp_nbits + 7)/8 <= 0xFFF))
++					rsa_dec_f3.q_len = (kop->crk_param[1].crp_nbits + 7)/8;
++					else
++						derr(1, "#q more than 12 bits \n");                    	
++					if (unlikely((kop->crk_param[5].crp_nbits + 7)/8 <= 0xFFF))
++						rsa_dec_f3.g_len = (kop->crk_param[5].crp_nbits + 7)/8;
++					else
++						derr(1, "#f more than 12 bits \n");
++					rsa_dec_f3.f_len = rsa_dec_f3.n_len;
++                    
++					ret = pk_rsa_decrypt_f3_init(&rsa_dec_f3);
++					if(unlikely(0 != ret)) {
++						derr(1, "pk_rsa_decrypt_f3_init error \n");
++						ret = -EFAULT;
++						goto out_unlock;		
++					}
++					if (unlikely(copy_from_user(rsa_dec_f3.addr_p, kop->crk_param[0].crp_p, rsa_dec_f3.p_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f3;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f3.addr_q, kop->crk_param[1].crp_p, rsa_dec_f3.q_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f3;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f3.addr_c, kop->crk_param[2].crp_p, rsa_dec_f3.p_len))) {
++						derr(1, "copy_from_user d error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f3;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f3.addr_dp, kop->crk_param[3].crp_p, rsa_dec_f3.p_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f3;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f3.addr_dq, kop->crk_param[4].crp_p, rsa_dec_f3.q_len))) {
++						derr(1, "copy_from_user n error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f3;
++					}
++					if (unlikely(copy_from_user(rsa_dec_f3.addr_g, kop->crk_param[5].crp_p, rsa_dec_f3.g_len))) {
++						derr(1, "copy_from_user g error \n");
++						ret = -EFAULT;
++						goto out_rsa_dec_f3;
++					}
++					ret = pk_rsa_decrypt_f3(&rsa_dec_f3);
++					if(unlikely(0 != ret)) {
++						derr(1, "RSA decrypt error code =0x%08X", ret);
++						goto out_rsa_dec_f3;
++					}
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, rsa_dec_f3.addr_f, rsa_dec_f3.f_len)))
++						ret = -EFAULT;
++					kop->crk_param[kop->crk_iparams].crp_nbits = rsa_dec_f3.f_len * 8;
++out_rsa_dec_f3:
++					pk_rsa_decrypt_f3_deinit(&rsa_dec_f3);
++                }				
++			}
++			break;
++		case CRK_RSA_GENERATE_KEY:
++			{
++				pk_rsa_keygen_t rsa_keygen;
++
++				memset(&rsa_keygen, 0, sizeof(pk_rsa_keygen_t));
++				if (kop->crk_iparams < 3 || kop->crk_param[0].crp_nbits > 4096) {
++					derr(1, "invalid parameters iparams=0x%08X, key bits=0x%08X \n", kop->crk_iparams,kop->crk_param[0].crp_nbits);
++					ret = -EINVAL;
++					goto out_unlock;
++				}				
++							
++				if (likely((kop->crk_param[0].crp_nbits + 7)/8 <= 0x1FF))
++					rsa_keygen.p_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				else
++					derr(1, "#p more than 9 bits \n");
++				if (likely((kop->crk_param[2].crp_nbits + 7)/8 <= 0x3FF))
++					rsa_keygen.e_len = (kop->crk_param[2].crp_nbits + 7)/8;
++				else
++					derr(1, "#e more than 10 bits \n");	
++				rsa_keygen.n_len = kop->crk_pad1; /*n len*/
++                
++				ret = pk_rsa_keygen_init(&rsa_keygen);
++				if(unlikely(0 != ret)) {
++					derr(1, "pk_rsa_keygen_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;	
++				}
++				if (unlikely(copy_from_user(rsa_keygen.addr_p, kop->crk_param[0].crp_p, rsa_keygen.p_len))) {
++					derr(1, "copy_from_user n error \n");
++		            ret = -EFAULT;
++		            goto out_rsa_keygen;
++		        }
++				if (unlikely(copy_from_user(rsa_keygen.addr_q, kop->crk_param[1].crp_p, rsa_keygen.p_len))) {
++					derr(1, "copy_from_user n error \n");
++		            ret = -EFAULT;
++		            goto out_rsa_keygen;
++		        }
++				if (unlikely(copy_from_user(rsa_keygen.addr_e, kop->crk_param[2].crp_p, rsa_keygen.e_len))) {
++					derr(1, "copy_from_user n error \n");
++		            ret = -EFAULT;
++		            goto out_rsa_keygen;
++		        }
++				ret = pk_rsa_keygen(&rsa_keygen);
++				if(unlikely(0 != ret)) {
++					derr(1, "RSA key generation error code =0x%08X", ret);
++					goto out_rsa_keygen;
++				}
++				if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, rsa_keygen.addr_n, rsa_keygen.n_len)))
++					ret = -EFAULT;
++				if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, rsa_keygen.addr_d, rsa_keygen.n_len)))
++					ret = -EFAULT;
++				if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+2].crp_p, rsa_keygen.addr_d1, rsa_keygen.p_len)))
++					ret = -EFAULT;
++				if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+3].crp_p, rsa_keygen.addr_d2, rsa_keygen.p_len)))
++					ret = -EFAULT;
++				if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+4].crp_p, rsa_keygen.addr_c, rsa_keygen.p_len)))
++					ret = -EFAULT;
++					
++			out_rsa_keygen:
++				pk_rsa_keygen_deinit(&rsa_keygen);
++			}
++			break;
++		case CRK_MP_SIGN:
++			{
++				mp_sign_t mp_sign_parameters;
++
++				memset(&mp_sign_parameters, 0, sizeof(mp_sign_t));
++				if (unlikely(kop->crk_iparams < 1)) {
++					derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				mp_sign_parameters.m_len = (kop->crk_param[0].crp_nbits + 7)/8;
++				if (KCOP_FLAG_MP_CSEL_P521 & kop->crk_flags)
++					mp_sign_parameters.curve_select = P521;
++				else if (KCOP_FLAG_MP_CSEL_P384 & kop->crk_flags)
++					mp_sign_parameters.curve_select = P384;
++				else if (KCOP_FLAG_MP_CSEL_P256 & kop->crk_flags)
++					mp_sign_parameters.curve_select = P256;
++                
++				ret = mp_sign_init(&mp_sign_parameters);
++				if(unlikely(0 != ret)) {
++					derr(1, "mp_sign_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				if (unlikely(copy_from_user(mp_sign_parameters.addr_m, kop->crk_param[0].crp_p, mp_sign_parameters.m_len))) {
++					derr(1, "copy_from_user m error \n");
++		            ret = -EFAULT;
++		            goto out_mp_sign;
++		        }
++				ret = mp_sign(&mp_sign_parameters);
++				if(unlikely(0 != ret))
++					derr(1, "MP sign error code =0x%08X", ret);
++				else {
++					if (P256 == mp_sign_parameters.curve_select) {
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, mp_sign_parameters.addr_c, 32)))
++							ret = -EFAULT;
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, mp_sign_parameters.addr_d, 32)))
++							ret = -EFAULT;
++					}
++					else if (P384 == mp_sign_parameters.curve_select)	{
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, mp_sign_parameters.addr_c, 48)))
++							ret = -EFAULT;
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, mp_sign_parameters.addr_d, 48)))
++							ret = -EFAULT;
++					}
++					else if (P521 == mp_sign_parameters.curve_select) {
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, mp_sign_parameters.addr_c, 66)))
++							ret = -EFAULT;
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+1].crp_p, mp_sign_parameters.addr_d, 66)))
++							ret = -EFAULT;
++					}
++					if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams+2].crp_p, mp_sign_parameters.addr_mes_rep, 32)))
++						ret = -EFAULT;
++				}
++			out_mp_sign:
++				mp_sign_deinit(&mp_sign_parameters);
++			}
++			break;
++		case CRK_MP_GET_PUBK:
++			{
++				mp_pubk_t mp_pubk;
++
++				memset(&mp_pubk, 0, sizeof(mp_pubk_t));
++				if (KCOP_FLAG_MP_CSEL_P521 & kop->crk_flags)
++					mp_pubk.curve_select = P521;
++				else if (KCOP_FLAG_MP_CSEL_P384 & kop->crk_flags)
++					mp_pubk.curve_select = P384;
++				else if (KCOP_FLAG_MP_CSEL_P256 & kop->crk_flags)
++					mp_pubk.curve_select = P256;
++
++                
++				ret = mp_get_pubk_init(&mp_pubk);
++				if(unlikely(0 != ret)) {
++					derr(1, "mp_get_pubk_init error \n");
++		            ret = -EFAULT;
++					goto out_unlock;
++				}
++				ret = mp_get_pubk(&mp_pubk);
++				if(unlikely(0 != ret))
++					derr(1, "MP get public key error code =0x%08X", ret);
++				else {
++					if (P256 == mp_pubk.curve_select) {
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, mp_pubk.addr_w, 32 * 2)))
++							ret = -EFAULT;
++					}
++					else if (P384 == mp_pubk.curve_select)	{
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, mp_pubk.addr_w, 48 * 2)))
++							ret = -EFAULT;
++					}
++					else if (P521 == mp_pubk.curve_select) {
++						if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams].crp_p, mp_pubk.addr_w, 66 * 2)))
++							ret = -EFAULT;
++					}
++				}
++				mp_get_pubk_deinit(&mp_pubk);
++			}
++			break;
++		case CRK_CV2X_VERIFY:
++			{
++				if (unlikely(!ses_ptr->cv2x_verify)) {
++					derr(1, "invalid cv2x verify ! \n");
++					ret = -EINVAL;
++					goto out_unlock;
++				}
++				if (CV2X_NISTP256_VERIFY == ses_ptr->cv2x_verify->curve_select) {
++					if (unlikely(kop->crk_iparams < 4)) {
++						derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++						ret = -EINVAL;
++						goto out_unlock;
++					}
++
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->nistp256_verify.addr_w, kop->crk_param[0].crp_p, (ses_ptr->cv2x_verify->nistp256_verify.l_len) * 2))) {
++						derr(1, "copy_from_user error w \n");
++			            goto out_cv2x_nistp256_verify;
++			        }
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->nistp256_verify.addr_f, kop->crk_param[1].crp_p, ses_ptr->cv2x_verify->nistp256_verify.n_len))) {
++						derr(1, "copy_from_user error f \n");
++			            goto out_cv2x_nistp256_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->nistp256_verify.addr_c, kop->crk_param[2].crp_p, ses_ptr->cv2x_verify->nistp256_verify.n_len))) {
++						derr(1, "copy_from_user error c \n");
++			            goto out_cv2x_nistp256_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->nistp256_verify.addr_d, kop->crk_param[3].crp_p, ses_ptr->cv2x_verify->nistp256_verify.n_len))) {
++						derr(1, "copy_from_user error d \n");
++			            goto out_cv2x_nistp256_verify;
++					}
++
++					ret = caam_cv2x_verify(ses_ptr->cv2x_verify);
++					if (false == ret)
++						kop->crk_status = 0;
++					else {
++						kop->crk_status = 1;
++						ret = 0;
++					}
++					goto out_unlock;
++out_cv2x_nistp256_verify:	
++					ret = -EFAULT;
++				}		
++				else if (CV2X_BP_P256R1_VERIFY == ses_ptr->cv2x_verify->curve_select) {
++					if (unlikely(kop->crk_iparams < 4)) {
++						derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++						ret = -EINVAL;
++						goto out_unlock;
++					}
++
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->bp256r1_verify.addr_w, kop->crk_param[0].crp_p, (ses_ptr->cv2x_verify->bp256r1_verify.l_len) * 2))) {
++						derr(1, "copy_from_user error w \n");
++			            goto out_cv2x_bp256r1_verify;
++			        }
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->bp256r1_verify.addr_f, kop->crk_param[1].crp_p, ses_ptr->cv2x_verify->bp256r1_verify.n_len))) {
++						derr(1, "copy_from_user error f \n");
++			            goto out_cv2x_bp256r1_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->bp256r1_verify.addr_c, kop->crk_param[2].crp_p, ses_ptr->cv2x_verify->bp256r1_verify.n_len))) {
++						derr(1, "copy_from_user error c \n");
++			            goto out_cv2x_bp256r1_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->bp256r1_verify.addr_d, kop->crk_param[3].crp_p, ses_ptr->cv2x_verify->bp256r1_verify.n_len))) {
++						derr(1, "copy_from_user error d \n");
++			            goto out_cv2x_bp256r1_verify;
++					}
++
++					ret = caam_cv2x_verify(ses_ptr->cv2x_verify);
++					if (false == ret)
++						kop->crk_status = 0;
++					else {
++						kop->crk_status = 1;
++						ret = 0;
++					}
++					goto out_unlock;
++out_cv2x_bp256r1_verify:
++					ret = -EFAULT;
++				}		
++				else if (CV2X_SM2_VERIFY == ses_ptr->cv2x_verify->curve_select) {
++					if (unlikely(kop->crk_iparams < 5)) {
++						derr(1, "invalid parameters iparams=0x%08X \n", kop->crk_iparams);
++						ret = -EINVAL;
++						goto out_unlock;
++					}
++
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->pkha_sm2_verify.addr_xA, kop->crk_param[0].crp_p, ses_ptr->cv2x_verify->pkha_sm2_verify.p_len))) {
++						derr(1, "copy_from_user error xA \n");
++			            goto out_cv2x_sm2_verify;
++			        }
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->pkha_sm2_verify.addr_yA, kop->crk_param[1].crp_p, ses_ptr->cv2x_verify->pkha_sm2_verify.p_len))) {
++						derr(1, "copy_from_user error yA \n");
++			            goto out_cv2x_sm2_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->pkha_sm2_verify.addr_e, kop->crk_param[2].crp_p, ses_ptr->cv2x_verify->pkha_sm2_verify.p_len))) {
++						derr(1, "copy_from_user error e \n");
++			            goto out_cv2x_sm2_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->pkha_sm2_verify.addr_r, kop->crk_param[3].crp_p, ses_ptr->cv2x_verify->pkha_sm2_verify.p_len))) {
++						derr(1, "copy_from_user error r \n");
++			            goto out_cv2x_sm2_verify;
++					}
++					if (unlikely(copy_from_user(ses_ptr->cv2x_verify->pkha_sm2_verify.addr_s, kop->crk_param[4].crp_p, ses_ptr->cv2x_verify->pkha_sm2_verify.p_len))) {
++						derr(1, "copy_from_user error s \n");
++			            goto out_cv2x_sm2_verify;
++					}
++
++					ret = caam_cv2x_verify(ses_ptr->cv2x_verify);
++					if (false == ret)
++						kop->crk_status = 0;
++					else {
++						kop->crk_status = 1;
++						ret = 0;
++					}
++					goto out_unlock;
++out_cv2x_sm2_verify:	
++					ret = -EFAULT;
++				}
++			}	
++			break;
++		}
++	}
++	else {		
++		jrdev = caam_pkha_get_jrdev();
++		for (i = 0; i < kop->crk_iparams; i++ ) {
++	        /* max alloc is PKHA_MAX_KEY_LENGTH */
++			if(unlikely(kop->crk_param[i].crp_nbits > PKHA_MAX_KEY_LENGTH*8)) {
++				ret = -EINVAL;
++				goto pkha_exit;
++			}
++			addr_p[i] = kmalloc((kop->crk_param[i].crp_nbits + 7)/8, GFP_KERNEL | GFP_DMA);
++	        if (unlikely(NULL == addr_p[i])) {
++	            derr(1, "crypto_pk_run : kmalloc error \n");
++	            ret = -ENOMEM;
++	            goto pkha_exit;
++	        }			
++	        if (unlikely(copy_from_user(addr_p[i], kop->crk_param[i].crp_p, (kop->crk_param[i].crp_nbits + 7)/8))) {
++	            derr(1, "crypto_pk_run : copy_from_user error \n");
++	            ret = -EFAULT;
++	            goto pkha_exit;
++	        }
++            phy_addr_p[i] = (caam_dma_addr_t)dma_map_single(jrdev, addr_p[i], (kop->crk_param[i].crp_nbits + 7)/8, DMA_TO_DEVICE);
++			if (dma_mapping_error(jrdev, phy_addr_p[i])) {
++				derr(1,"crypto_pk_run(): can't map phy_addr_p\n");
++				goto pkha_exit;
++			}
++	    }
++	    for (j = 0; j < kop->crk_oparams; j++ ) {
++			addr_p[i + j] = kmalloc(PKHA_MAX_KEY_LENGTH, GFP_KERNEL | GFP_DMA);
++	        if (unlikely(NULL == addr_p[i + j])) {
++	            derr(1, "crypto_pk_run : kmalloc error, i %d, j %d, bytes %d\n", i, j, (kop->crk_param[i + j].crp_nbits + 7)/8);
++	            ret = -ENOMEM;
++	            goto pkha_exit;
++	        }
++			phy_addr_p[i + j] = (caam_dma_addr_t)dma_map_single(jrdev, addr_p[i + j], PKHA_MAX_KEY_LENGTH, DMA_FROM_DEVICE);
++			if (dma_mapping_error(jrdev, phy_addr_p[i])) {
++				derr(1,"crypto_pk_run(): can't map phy_addr_p\n");
++				goto pkha_exit;
++			}
++	    }
++		desc = kzalloc(MAX_CAAM_DESCSIZE * sizeof(uint32_t), GFP_KERNEL | GFP_DMA);
++		if (unlikely(NULL == desc)) {
++			derr(1, "crypto_pk_run : kzalloc error \n");
++            ret = -ENOMEM;
++            goto pkha_exit;
++		}
++		switch (kop->crk_op) {
++		case CRK_MOD_EXP:
++			{
++				// A, E, N, RET    RET = (A ^ E ) mod N				
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_EXP : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				mont_in = (kop->crk_flags & KCOP_FLAG_MONTGOMERY_FORMAT) ? PKHA_MontgomeryFormat : PKHA_NormalValue;
++				equal_time = (kop->crk_flags & KCOP_FLAG_TIMING_EQUALIZATION) ? PKHA_TimingEqualized : PKHA_NoTimingEqualized;
++				status = pkha_mod_exp(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++	                           phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, arith_type, mont_in, equal_time, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_EXP : pkha_mod_exp failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_MOD_ADD:
++			{
++				// A, B, N, RET    RET = (A + B)mod N
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_ADD : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				status = pkha_mod_add(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++	                                                 phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_ADD : pkha_mod_add failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_MOD_SUB1:
++			{
++				// A, B, N, RET    RET = (A - B) mod N
++	            status = pkha_clear_mem(0xF, 0xF, desc);	
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_SUB1 : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				status = pkha_mod_sub1(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++	                                                 phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_SUB1 : pkha_mod_sub1 failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_MOD_SUB2:
++			{
++				// A, B, N, RET    RET = (B - A) mod N
++	            status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_SUB2 : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				status = pkha_mod_sub2(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++										phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_SUB2 : pkha_mod_sub2 failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_MOD_MUL:
++			{
++				// A, B, N, RET    RET = (A x B ) mod N				
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_MUL : pkha_clear_mem failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				mont_in = (kop->crk_flags & KCOP_FLAG_MONTGOMERY_FORMAT) ? PKHA_MontgomeryFormat : PKHA_NormalValue;
++				mont_out = (kop->crk_flags & KCOP_FLAG_MONTGOMERY_FORMAT) ? PKHA_MontgomeryFormat : PKHA_NormalValue;
++				equal_time = (kop->crk_flags & KCOP_FLAG_TIMING_EQUALIZATION) ? PKHA_TimingEqualized : PKHA_NoTimingEqualized;
++				status = pkha_mod_mul(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++				phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, arith_type, mont_in, mont_out, equal_time, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_MUL : pkha_mod_mul failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_MOD_RED:
++			{
++				// A,  N, RET    RET = A mod N
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_RED : pkha_clear_mem failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				status = pkha_mod_red(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++				                                 phy_addr_p[2], &out_size_byte, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_RED : pkha_mod_red failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				kop->crk_param[2].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_MOD_INV:
++			{
++				// A,  N, RET    RET = A^-1 mod N
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_INV : pkha_clear_mem failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				status = pkha_mod_inv(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++				                                 phy_addr_p[2], &out_size_byte, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_INV : pkha_mod_inv failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				kop->crk_param[2].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_GCD:
++			{
++				// A,  N, RET    RET = GCD(A, N)
++	            status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_GCD : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				status = pkha_gcd(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++	                                                 phy_addr_p[2], &out_size_byte, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_GCD : pkha_gcd failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[2].crp_nbits = out_size_byte * 8;
++			}
++			break;
++		case CRK_PRIMALITY_TEST:
++			{
++				// A, B, N, Miller Rabin primality test
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_PRIMALITY_TEST : pkha_clear_mem failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				status = pkha_primality_test(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[1].crp_nbits + 7)/8,
++				phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, &prime_result, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_PRIMALITY_TEST : pkha_primality_test failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				if (false == prime_result)
++					kop->crk_status = 0;
++				else 
++					kop->crk_status = 1;
++				ret = 0;
++			}
++			break;
++		case CRK_MOD_R2:
++			{
++				// N, RET    RET = R2 mod N
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_R2 : pkha_clear_mem failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				status = pkha_mod_r2(phy_addr_p[0], (kop->crk_param[0].crp_nbits + 7)/8, phy_addr_p[1], &out_size_byte, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_MOD_R2 : pkha_mod_r2 failed \n");
++					ret = -EFAULT;
++					goto pkha_exit;
++				}
++				kop->crk_param[1].crp_nbits = out_size_byte * 8;
++			}
++			break;		
++		case CRK_ECC_ADD:
++			{
++				// A, B, N, RET    RET(a0, a1) = (A(a0, a1) + B(b0, b1))mod N
++	            status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_ADD : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++	            arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				r2_input = (kop->crk_flags & KCOP_FLAG_R2INPUT) ? PKHA_R2_Input : PKHA_R2_Calculated;
++	            status = pkha_ecc_add(phy_addr_p[0], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[2].crp_nbits + 7)/8,
++	                                                 phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, r2_input, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_ADD : pkha_ecc_add failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = QUAD_BYTES * 16;
++			}
++			break;
++		case CRK_ECC_DOUBLE:
++			{
++				// A, B, N, RET    RET(a0, a1) = (B(b0, b1) + B(b0, b1))mod N
++	            status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_DOUBLE : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++	            arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++	            status = pkha_ecc_double(phy_addr_p[0], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[2].crp_nbits + 7)/8,
++	                                                 phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_DOUBLE : pkha_ecc_double failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = QUAD_BYTES * 16;
++			}
++			break;
++		case CRK_ECC_MUL:
++			{
++				// A, B, N, E, RET    RET(a0, a1) = (E x A(a0, a1))mod N
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_MUL : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				r2_input = (kop->crk_flags & KCOP_FLAG_R2INPUT) ? PKHA_R2_Input : PKHA_R2_Calculated;
++				equal_time = (kop->crk_flags & KCOP_FLAG_TIMING_EQUALIZATION) ? PKHA_TimingEqualized : PKHA_NoTimingEqualized;
++				status = pkha_ecc_mul(phy_addr_p[0], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[2].crp_nbits + 7)/8,
++									phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], (kop->crk_param[3].crp_nbits + 7)/8, 
++									phy_addr_p[4], &out_size_byte, r2_input, arith_type, equal_time, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_MUL : pkha_ecc_mul failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[4].crp_nbits = QUAD_BYTES * 16;
++			}
++			break;
++        case CRK_ECC_MUL_IS_INFINITY:
++			{
++				// A, B, N, E, RET    RET(a0, a1) = (E x A(a0, a1))mod N
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_MUL : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				r2_input = (kop->crk_flags & KCOP_FLAG_R2INPUT) ? PKHA_R2_Input : PKHA_R2_Calculated;
++				equal_time = (kop->crk_flags & KCOP_FLAG_TIMING_EQUALIZATION) ? PKHA_TimingEqualized : PKHA_NoTimingEqualized;
++				status = pkha_ecc_mul_is_infinity(phy_addr_p[0], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[2].crp_nbits + 7)/8,
++									phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], (kop->crk_param[3].crp_nbits + 7)/8, 
++									phy_addr_p[4], &out_size_byte, r2_input, arith_type, equal_time, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_MUL : pkha_ecc_mul failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[4].crp_nbits = QUAD_BYTES * 16;
++			}
++			break;
++        case CRK_ECC_CHECK_POINT:
++			{
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_MUL : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				arith_type = (kop->crk_flags & KCOP_FLAG_F2M_ARITH) ? PKHA_F2M_Arith : PKHA_Integer_Arith;
++				r2_input = (kop->crk_flags & KCOP_FLAG_R2INPUT) ? PKHA_R2_Input : PKHA_R2_Calculated;
++				status = pkha_ecc_check_point(phy_addr_p[0], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[1], (kop->crk_param[2].crp_nbits + 7)/8,
++									phy_addr_p[2], (kop->crk_param[2].crp_nbits + 7)/8, phy_addr_p[3], &out_size_byte, r2_input, arith_type, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_ECC_MUL : pkha_ecc_mul failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++				kop->crk_param[3].crp_nbits = QUAD_BYTES * 16;
++			}
++			break;
++		case CRK_CLEAR_MEM:
++			{
++				status = pkha_clear_mem(0xF, 0xF, desc);
++				if (unlikely(0 != status)) {
++					derr(1, "CRK_CLEAR_MEM : pkha_clear_mem failed \n");
++		            ret = -EFAULT;
++		            goto pkha_exit;
++				}
++			}
++		case CRK_MOD_EXP_CRT:
++		case CRK_COPY_MEM:
++			ret = -EINVAL;
++			dwarning(1, "crypto dev don't support this cryptography operation! \n");
++			break;
++		}
++        for (i = 0; i < kop->crk_iparams; i++ ) {
++			dma_unmap_single(jrdev, phy_addr_p[i], (kop->crk_param[i].crp_nbits + 7)/8, DMA_TO_DEVICE);
++	    }
++	    for (j = 0; j < kop->crk_oparams; j++ ) {
++			dma_unmap_single(jrdev, phy_addr_p[i + j], PKHA_MAX_KEY_LENGTH, DMA_FROM_DEVICE);
++	    }
++    	for (i = 0; i < kop->crk_oparams; i++ ) {
++            if (unlikely(copy_to_user(kop->crk_param[kop->crk_iparams + i].crp_p,  addr_p[kop->crk_iparams + i], (kop->crk_param[kop->crk_iparams + i].crp_nbits + 7)/8))) {
++                ret = -EFAULT;
++                goto pkha_exit;
++            }
++        }    
++		
++pkha_exit:
++    	if (NULL != desc)
++    		kfree(desc);
++    	for (i = 0; i < (kop->crk_iparams + kop->crk_oparams); i++ ) {
++    		if (NULL != addr_p[i]) {
++				kfree_sensitive(addr_p[i]);
++    		}
++    	}
++    }
++
++out_unlock:
++	crypto_put_session(ses_ptr);
++	return ret;
++}
++
++
+-- 
+2.33.0
+

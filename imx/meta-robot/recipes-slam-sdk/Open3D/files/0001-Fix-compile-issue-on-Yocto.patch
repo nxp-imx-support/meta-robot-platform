@@ -1,0 +1,803 @@
+From fcebe251c533015bf8cf7c2bdc064c5f4d37b6ab Mon Sep 17 00:00:00 2001
+From: zxd2021-iMX <xiaodong.zhang@nxp.com>
+Date: Tue, 17 Jan 2023 13:20:03 +0800
+Subject: [PATCH] Fix compile issue on Yocto
+
+Signed-off-by: zxd2021-iMX <xiaodong.zhang@nxp.com>
+---
+ 3rdparty/embree/embree.cmake                  |   2 +
+ 3rdparty/find_dependencies.cmake              |  38 +--
+ ...ile-issue-on-Yocto-for-i.MX-Platform.patch |  26 ++
+ 3rdparty/mkl/tbb.cmake                        |   2 +-
+ CMakeLists.txt                                |  10 +-
+ cpp/open3d/geometry/Line3D.cpp                |   4 +-
+ cpp/open3d/utility/ExtractZIP.cpp             |   2 +-
+ cpp/open3d/utility/ioapi.h                    | 145 +++++++++
+ cpp/open3d/utility/unzip.h                    | 306 ++++++++++++++++++
+ cpp/open3d/visualization/CMakeLists.txt       |  36 ---
+ cpp/pybind/CMakeLists.txt                     |   1 +
+ cpp/tools/CMakeLists.txt                      |   2 +-
+ .../ManuallyAlignPointCloud/CMakeLists.txt    |   3 +
+ examples/cpp/CMakeLists.txt                   |   2 +-
+ examples/test_data/download_file_list.json    |   6 +-
+ 15 files changed, 504 insertions(+), 81 deletions(-)
+ create mode 100644 3rdparty/mkl/0001-Fix-compile-issue-on-Yocto-for-i.MX-Platform.patch
+ create mode 100644 cpp/open3d/utility/ioapi.h
+ create mode 100644 cpp/open3d/utility/unzip.h
+
+diff --git a/3rdparty/embree/embree.cmake b/3rdparty/embree/embree.cmake
+index c9da6057..773ae0a5 100644
+--- a/3rdparty/embree/embree.cmake
++++ b/3rdparty/embree/embree.cmake
+@@ -32,6 +32,7 @@ elseif(LINUX_AARCH64)
+                  -DEMBREE_ISA_AVX512=OFF
+                  -DEMBREE_ISA_SSE2=OFF
+                  -DEMBREE_ISA_SSE42=OFF
++                 -DEMBREE_ISA_NEON=ON
+     )
+     set(ISA_LIBS "")
+     set(ISA_BUILD_BYPRODUCTS "")
+@@ -84,6 +85,7 @@ ExternalProject_Add(
+         -DEMBREE_GEOMETRY_INSTANCE=OFF
+         -DEMBREE_GEOMETRY_QUAD=OFF
+         -DEMBREE_GEOMETRY_SUBDIVISION=OFF
++        -DEMBREE_IGNORE_CMAKE_CXX_FLAGS=OFF
+         -DEMBREE_TASKING_SYSTEM=INTERNAL
+         ${ExternalProject_CMAKE_ARGS_hidden}
+         ${WIN_CMAKE_ARGS}
+diff --git a/3rdparty/find_dependencies.cmake b/3rdparty/find_dependencies.cmake
+index dd00fd6b..d1178195 100644
+--- a/3rdparty/find_dependencies.cmake
++++ b/3rdparty/find_dependencies.cmake
+@@ -786,19 +786,6 @@ if (BUILD_LIBREALSENSE)
+     list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS Open3D::3rdparty_librealsense)
+ endif()
+ 
+-# Curl
+-# - Curl should be linked before PNG, otherwise it will have undefined symbols.
+-# - openssl.cmake needs to be included before curl.cmake, for the
+-#   BORINGSSL_ROOT_DIR variable.
+-include(${Open3D_3RDPARTY_DIR}/boringssl/boringssl.cmake)
+-include(${Open3D_3RDPARTY_DIR}/curl/curl.cmake)
+-open3d_import_3rdparty_library(3rdparty_curl
+-    INCLUDE_DIRS ${CURL_INCLUDE_DIRS}
+-    INCLUDE_ALL
+-    LIB_DIR      ${CURL_LIB_DIR}
+-    LIBRARIES    ${CURL_LIBRARIES}
+-    DEPENDS      ext_zlib ext_curl
+-)
+ if(APPLE)
+     # Missing frameworks: https://stackoverflow.com/a/56157695/1255535
+     # Link frameworks   : https://stackoverflow.com/a/18330634/1255535
+@@ -811,18 +798,6 @@ if(APPLE)
+     # The "Foundation" framework is already linked by GLFW.
+     target_link_libraries(3rdparty_curl INTERFACE "-framework SystemConfiguration")
+ endif()
+-list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS Open3D::3rdparty_curl)
+-
+-# BoringSSL
+-open3d_import_3rdparty_library(3rdparty_openssl
+-    INCLUDE_DIRS ${BORINGSSL_INCLUDE_DIRS}
+-    INCLUDE_ALL
+-    INCLUDE_DIRS ${BORINGSSL_INCLUDE_DIRS}
+-    LIB_DIR      ${BORINGSSL_LIB_DIR}
+-    LIBRARIES    ${BORINGSSL_LIBRARIES}
+-    DEPENDS      ext_zlib ext_boringssl
+-)
+-list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS Open3D::3rdparty_openssl)
+ 
+ # PNG
+ if(USE_SYSTEM_PNG)
+@@ -1259,10 +1234,15 @@ if(NOT USE_SYSTEM_ZEROMQ)
+         LIBRARIES    ${ZEROMQ_LIBRARIES}
+         DEPENDS      ext_zeromq ext_cppzmq
+     )
+-endif()
+-list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS Open3D::3rdparty_zeromq)
+-if(DEFINED ZEROMQ_ADDITIONAL_LIBS)
+-    list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS ${ZEROMQ_ADDITIONAL_LIBS})
++    list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS_FROM_CUSTOM Open3D::3rdparty_zeromq)
++    if(DEFINED ZEROMQ_ADDITIONAL_LIBS)
++        list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS_FROM_CUSTOM ${ZEROMQ_ADDITIONAL_LIBS})
++    endif()
++else()
++    list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS_FROM_SYSTEM Open3D::3rdparty_zeromq)
++    if(DEFINED ZEROMQ_ADDITIONAL_LIBS)
++        list(APPEND Open3D_3RDPARTY_PRIVATE_TARGETS_FROM_SYSTEM ${ZEROMQ_ADDITIONAL_LIBS})
++    endif()
+ endif()
+ 
+ # msgpack
+diff --git a/3rdparty/mkl/0001-Fix-compile-issue-on-Yocto-for-i.MX-Platform.patch b/3rdparty/mkl/0001-Fix-compile-issue-on-Yocto-for-i.MX-Platform.patch
+new file mode 100644
+index 00000000..a37027a6
+--- /dev/null
++++ b/3rdparty/mkl/0001-Fix-compile-issue-on-Yocto-for-i.MX-Platform.patch
+@@ -0,0 +1,26 @@
++From b33e815492be2b27b3be9133bfad9b9ce2bef551 Mon Sep 17 00:00:00 2001
++From: nxa22940 <xiaodong.zhang@nxp.com>
++Date: Fri, 13 May 2022 17:38:26 +0800
++Subject: [PATCH] Fix compile issue on Yocto for i.MX Platform
++
++Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
++---
++ src/tbb/tools_api/ittnotify_config.h | 2 ++
++ 1 file changed, 2 insertions(+)
++
++diff --git a/src/tbb/tools_api/ittnotify_config.h b/src/tbb/tools_api/ittnotify_config.h
++index bdb4ec2..fbddf70 100644
++--- a/src/tbb/tools_api/ittnotify_config.h
+++++ b/src/tbb/tools_api/ittnotify_config.h
++@@ -155,6 +155,8 @@
++ #  define ITT_ARCH_PPC64  5
++ #endif /* ITT_ARCH_PPC64 */
++ 
+++#define ITT_ARCH ITT_ARCH_ARM
+++
++ #ifndef ITT_ARCH
++ #  if defined _M_IX86 || defined __i386__
++ #    define ITT_ARCH ITT_ARCH_IA32
++-- 
++2.35.1
++
+diff --git a/3rdparty/mkl/tbb.cmake b/3rdparty/mkl/tbb.cmake
+index b87ef79f..61aeb8e5 100644
+--- a/3rdparty/mkl/tbb.cmake
++++ b/3rdparty/mkl/tbb.cmake
+@@ -32,7 +32,7 @@ ExternalProject_Add(
+     UPDATE_COMMAND ""
+     PATCH_COMMAND ${GIT_EXECUTABLE} init
+     COMMAND ${GIT_EXECUTABLE} apply --ignore-space-change --ignore-whitespace
+-        ${CMAKE_CURRENT_LIST_DIR}/0001-Allow-selecttion-of-static-dynamic-MSVC-runtime.patch
++        ${CMAKE_CURRENT_LIST_DIR}/0001-Fix-compile-issue-on-Yocto-for-i.MX-Platform.patch
+     CMAKE_ARGS
+         -DCMAKE_INSTALL_PREFIX=${MKL_INSTALL_PREFIX}
+         -DSTATIC_WINDOWS_RUNTIME=${STATIC_WINDOWS_RUNTIME}
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 40643abd..10e5f53c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -16,14 +16,10 @@ endif()
+ # CMAKE_HOST_SYSTEM_PROCESSOR is only available after calling project(),
+ # which depends on ${OPEN3D_VERSION}, which depends on ${DEVELOPER_BUILD}.
+ if(UNIX AND NOT APPLE)
+-    execute_process(COMMAND uname -p
+-        OUTPUT_VARIABLE PROCESSOR_ARCH
+-        OUTPUT_STRIP_TRAILING_WHITESPACE
+-    )
+-    if(PROCESSOR_ARCH STREQUAL "aarch64")
+-        set(LINUX_AARCH64 TRUE)
+-    endif()
++    set(PROCESSOR_ARCH aarch64 )
++    set(LINUX_AARCH64 TRUE)
+ endif()
++
+ if(APPLE)
+     execute_process(COMMAND uname -m
+         OUTPUT_VARIABLE PROCESSOR_ARCH
+diff --git a/cpp/open3d/geometry/Line3D.cpp b/cpp/open3d/geometry/Line3D.cpp
+index abae1bee..0a0231e8 100644
+--- a/cpp/open3d/geometry/Line3D.cpp
++++ b/cpp/open3d/geometry/Line3D.cpp
+@@ -53,7 +53,7 @@ Line3D::Line3D(const Eigen::Vector3d& origin,
+ }
+ 
+ void Line3D::Transform(const Eigen::Transform<double, 3, Eigen::Affine>& t) {
+-    this->transform(t);
++    this->Transform(t);
+ }
+ 
+ std::pair<double, double> Line3D::SlabAABBBase(
+@@ -347,7 +347,7 @@ Segment3D::Segment3D(const std::pair<Eigen::Vector3d, Eigen::Vector3d>& pair)
+     : Segment3D(std::get<0>(pair), std::get<1>(pair)) {}
+ 
+ void Segment3D::Transform(const Eigen::Transform<double, 3, Eigen::Affine>& t) {
+-    this->transform(t);
++    this->Transform(t);
+     end_point_ = t * end_point_;
+ }
+ 
+diff --git a/cpp/open3d/utility/ExtractZIP.cpp b/cpp/open3d/utility/ExtractZIP.cpp
+index 17611b1f..28cfb6a7 100644
+--- a/cpp/open3d/utility/ExtractZIP.cpp
++++ b/cpp/open3d/utility/ExtractZIP.cpp
+@@ -31,7 +31,7 @@
+ 
+ #include <errno.h>
+ #include <stdio.h>
+-#include <unzip.h>
++#include "open3d/utility/unzip.h"
+ 
+ #include <iostream>
+ #include <string>
+diff --git a/cpp/open3d/utility/ioapi.h b/cpp/open3d/utility/ioapi.h
+new file mode 100644
+index 00000000..0e49543e
+--- /dev/null
++++ b/cpp/open3d/utility/ioapi.h
+@@ -0,0 +1,145 @@
++/* ioapi.h -- IO base function header for compress/uncompress .zip
++   part of the MiniZip project
++
++   Copyright (C) 1998-2010 Gilles Vollant
++     http://www.winimage.com/zLibDll/minizip.html
++   Modifications for Zip64 support
++     Copyright (C) 2009-2010 Mathias Svensson
++     http://result42.com
++
++   This program is distributed under the terms of the same license as zlib.
++   See the accompanying LICENSE file for the full text of the license.
++*/
++
++#ifndef _ZLIBIOAPI64_H
++#define _ZLIBIOAPI64_H
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdint.h>
++
++#include "zlib.h"
++
++#if defined(USE_FILE32API)
++#   define fopen64 fopen
++#   define ftello64 ftell
++#   define fseeko64 fseek
++#else
++#if defined(_MSC_VER)
++#   define fopen64 fopen
++#   if (_MSC_VER >= 1400) && (!(defined(NO_MSCVER_FILE64_FUNC)))
++#       define ftello64 _ftelli64
++#       define fseeko64 _fseeki64
++#   else /* old MSC */
++#       define ftello64 ftell
++#       define fseeko64 fseek
++#   endif
++#else
++#   define fopen64 fopen
++#   define ftello64 ftello
++#   define fseeko64 fseeko
++#endif
++#endif
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define ZLIB_FILEFUNC_SEEK_CUR (1)
++#define ZLIB_FILEFUNC_SEEK_END (2)
++#define ZLIB_FILEFUNC_SEEK_SET (0)
++
++#define ZLIB_FILEFUNC_MODE_READ             (1)
++#define ZLIB_FILEFUNC_MODE_WRITE            (2)
++#define ZLIB_FILEFUNC_MODE_READWRITEFILTER  (3)
++#define ZLIB_FILEFUNC_MODE_EXISTING         (4)
++#define ZLIB_FILEFUNC_MODE_CREATE           (8)
++
++#ifndef ZCALLBACK
++#  if (defined(WIN32) || defined(_WIN32) || defined (WINDOWS) || \
++       defined (_WINDOWS)) && defined(CALLBACK) && defined (USEWINDOWS_CALLBACK)
++#    define ZCALLBACK CALLBACK
++#  else
++#    define ZCALLBACK
++#  endif
++#endif
++
++typedef voidpf   (ZCALLBACK *open_file_func)     (voidpf opaque, const char *filename, int mode);
++typedef voidpf   (ZCALLBACK *opendisk_file_func) (voidpf opaque, voidpf stream, uint32_t number_disk, int mode);
++typedef uint32_t (ZCALLBACK *read_file_func)     (voidpf opaque, voidpf stream, void* buf, uint32_t size);
++typedef uint32_t (ZCALLBACK *write_file_func)    (voidpf opaque, voidpf stream, const void *buf, uint32_t size);
++typedef int      (ZCALLBACK *close_file_func)    (voidpf opaque, voidpf stream);
++typedef int      (ZCALLBACK *error_file_func)    (voidpf opaque, voidpf stream);
++
++typedef long     (ZCALLBACK *tell_file_func)     (voidpf opaque, voidpf stream);
++typedef long     (ZCALLBACK *seek_file_func)     (voidpf opaque, voidpf stream, uint32_t offset, int origin);
++
++/* here is the "old" 32 bits structure structure */
++typedef struct zlib_filefunc_def_s
++{
++    open_file_func      zopen_file;
++    opendisk_file_func  zopendisk_file;
++    read_file_func      zread_file;
++    write_file_func     zwrite_file;
++    tell_file_func      ztell_file;
++    seek_file_func      zseek_file;
++    close_file_func     zclose_file;
++    error_file_func     zerror_file;
++    voidpf              opaque;
++} zlib_filefunc_def;
++
++typedef uint64_t (ZCALLBACK *tell64_file_func)    (voidpf opaque, voidpf stream);
++typedef long     (ZCALLBACK *seek64_file_func)    (voidpf opaque, voidpf stream, uint64_t offset, int origin);
++typedef voidpf   (ZCALLBACK *open64_file_func)    (voidpf opaque, const void *filename, int mode);
++typedef voidpf   (ZCALLBACK *opendisk64_file_func)(voidpf opaque, voidpf stream, uint32_t number_disk, int mode);
++
++typedef struct zlib_filefunc64_def_s
++{
++    open64_file_func     zopen64_file;
++    opendisk64_file_func zopendisk64_file;
++    read_file_func       zread_file;
++    write_file_func      zwrite_file;
++    tell64_file_func     ztell64_file;
++    seek64_file_func     zseek64_file;
++    close_file_func      zclose_file;
++    error_file_func      zerror_file;
++    voidpf               opaque;
++} zlib_filefunc64_def;
++
++void fill_fopen_filefunc(zlib_filefunc_def *pzlib_filefunc_def);
++void fill_fopen64_filefunc(zlib_filefunc64_def *pzlib_filefunc_def);
++
++/* now internal definition, only for zip.c and unzip.h */
++typedef struct zlib_filefunc64_32_def_s
++{
++    zlib_filefunc64_def zfile_func64;
++    open_file_func      zopen32_file;
++    opendisk_file_func  zopendisk32_file;
++    tell_file_func      ztell32_file;
++    seek_file_func      zseek32_file;
++} zlib_filefunc64_32_def;
++
++#define ZREAD64(filefunc,filestream,buf,size)       ((*((filefunc).zfile_func64.zread_file))        ((filefunc).zfile_func64.opaque,filestream,buf,size))
++#define ZWRITE64(filefunc,filestream,buf,size)      ((*((filefunc).zfile_func64.zwrite_file))       ((filefunc).zfile_func64.opaque,filestream,buf,size))
++/*#define ZTELL64(filefunc,filestream)                ((*((filefunc).ztell64_file))                   ((filefunc).opaque,filestream))*/
++/*#define ZSEEK64(filefunc,filestream,pos,mode)       ((*((filefunc).zseek64_file))                   ((filefunc).opaque,filestream,pos,mode))*/
++#define ZCLOSE64(filefunc,filestream)               ((*((filefunc).zfile_func64.zclose_file))       ((filefunc).zfile_func64.opaque,filestream))
++#define ZERROR64(filefunc,filestream)               ((*((filefunc).zfile_func64.zerror_file))       ((filefunc).zfile_func64.opaque,filestream))
++
++voidpf   call_zopen64(const zlib_filefunc64_32_def *pfilefunc,const void*filename, int mode);
++voidpf   call_zopendisk64(const zlib_filefunc64_32_def *pfilefunc, voidpf filestream, uint32_t number_disk, int mode);
++long     call_zseek64(const zlib_filefunc64_32_def *pfilefunc, voidpf filestream, uint64_t offset, int origin);
++uint64_t call_ztell64(const zlib_filefunc64_32_def *pfilefunc, voidpf filestream);
++
++void fill_zlib_filefunc64_32_def_from_filefunc32(zlib_filefunc64_32_def *p_filefunc64_32, const zlib_filefunc_def *p_filefunc32);
++
++#define ZOPEN64(filefunc,filename,mode)             (call_zopen64((&(filefunc)),(filename),(mode)))
++#define ZOPENDISK64(filefunc,filestream,diskn,mode) (call_zopendisk64((&(filefunc)),(filestream),(diskn),(mode)))
++#define ZTELL64(filefunc,filestream)                (call_ztell64((&(filefunc)),(filestream)))
++#define ZSEEK64(filefunc,filestream,pos,mode)       (call_zseek64((&(filefunc)),(filestream),(pos),(mode)))
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/cpp/open3d/utility/unzip.h b/cpp/open3d/utility/unzip.h
+new file mode 100644
+index 00000000..ea4c90a4
+--- /dev/null
++++ b/cpp/open3d/utility/unzip.h
+@@ -0,0 +1,306 @@
++/* unzip.h -- IO for uncompress .zip files using zlib
++   Version 1.1, February 14h, 2010
++   part of the MiniZip project
++
++   Copyright (C) 1998-2010 Gilles Vollant
++     http://www.winimage.com/zLibDll/minizip.html
++   Modifications of Unzip for Zip64
++     Copyright (C) 2007-2008 Even Rouault
++   Modifications for Zip64 support on both zip and unzip
++     Copyright (C) 2009-2010 Mathias Svensson
++     http://result42.com
++
++   This program is distributed under the terms of the same license as zlib.
++   See the accompanying LICENSE file for the full text of the license.
++*/
++
++#ifndef _UNZ_H
++#define _UNZ_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#ifndef _ZLIB_H
++#include "zlib.h"
++#endif
++
++#ifndef _ZLIBIOAPI_H
++#include "ioapi.h"
++#endif
++
++#ifdef HAVE_BZIP2
++#include "bzlib.h"
++#endif
++
++#define Z_BZIP2ED 12
++
++#if defined(STRICTUNZIP) || defined(STRICTZIPUNZIP)
++/* like the STRICT of WIN32, we define a pointer that cannot be converted
++    from (void*) without cast */
++typedef struct TagunzFile__ { int unused; } unz_file__;
++typedef unz_file__ *unzFile;
++#else
++typedef voidp unzFile;
++#endif
++
++#define UNZ_OK                          (0)
++#define UNZ_END_OF_LIST_OF_FILE         (-100)
++#define UNZ_ERRNO                       (Z_ERRNO)
++#define UNZ_EOF                         (0)
++#define UNZ_PARAMERROR                  (-102)
++#define UNZ_BADZIPFILE                  (-103)
++#define UNZ_INTERNALERROR               (-104)
++#define UNZ_CRCERROR                    (-105)
++#define UNZ_BADPASSWORD                 (-106)
++
++/* unz_global_info structure contain global data about the ZIPfile
++   These data comes from the end of central dir */
++typedef struct unz_global_info64_s
++{
++    uint64_t number_entry;          /* total number of entries in the central dir on this disk */
++    uint32_t number_disk_with_CD;   /* number the the disk with central dir, used for spanning ZIP*/
++    uint16_t size_comment;          /* size of the global comment of the zipfile */
++} unz_global_info64;
++
++typedef struct unz_global_info_s
++{
++    uint32_t number_entry;          /* total number of entries in the central dir on this disk */
++    uint32_t number_disk_with_CD;   /* number the the disk with central dir, used for spanning ZIP*/
++    uint16_t size_comment;          /* size of the global comment of the zipfile */
++} unz_global_info;
++
++/* unz_file_info contain information about a file in the zipfile */
++typedef struct unz_file_info64_s
++{
++    uint16_t version;               /* version made by                 2 bytes */
++    uint16_t version_needed;        /* version needed to extract       2 bytes */
++    uint16_t flag;                  /* general purpose bit flag        2 bytes */
++    uint16_t compression_method;    /* compression method              2 bytes */
++    uint32_t dos_date;              /* last mod file date in Dos fmt   4 bytes */
++    uint32_t crc;                   /* crc-32                          4 bytes */
++    uint64_t compressed_size;       /* compressed size                 8 bytes */
++    uint64_t uncompressed_size;     /* uncompressed size               8 bytes */
++    uint16_t size_filename;         /* filename length                 2 bytes */
++    uint16_t size_file_extra;       /* extra field length              2 bytes */
++    uint16_t size_file_comment;     /* file comment length             2 bytes */
++
++    uint32_t disk_num_start;        /* disk number start               4 bytes */
++    uint16_t internal_fa;           /* internal file attributes        2 bytes */
++    uint32_t external_fa;           /* external file attributes        4 bytes */
++
++    uint64_t disk_offset;
++
++    uint16_t size_file_extra_internal;
++} unz_file_info64;
++
++typedef struct unz_file_info_s
++{
++    uint16_t version;               /* version made by                 2 bytes */
++    uint16_t version_needed;        /* version needed to extract       2 bytes */
++    uint16_t flag;                  /* general purpose bit flag        2 bytes */
++    uint16_t compression_method;    /* compression method              2 bytes */
++    uint32_t dos_date;              /* last mod file date in Dos fmt   4 bytes */
++    uint32_t crc;                   /* crc-32                          4 bytes */
++    uint32_t compressed_size;       /* compressed size                 4 bytes */
++    uint32_t uncompressed_size;     /* uncompressed size               4 bytes */
++    uint16_t size_filename;         /* filename length                 2 bytes */
++    uint16_t size_file_extra;       /* extra field length              2 bytes */
++    uint16_t size_file_comment;     /* file comment length             2 bytes */
++
++    uint16_t disk_num_start;        /* disk number start               2 bytes */
++    uint16_t internal_fa;           /* internal file attributes        2 bytes */
++    uint32_t external_fa;           /* external file attributes        4 bytes */
++
++    uint64_t disk_offset;
++} unz_file_info;
++
++/***************************************************************************/
++/* Opening and close a zip file */
++
++extern unzFile ZEXPORT unzOpen(const char *path);
++extern unzFile ZEXPORT unzOpen64(const void *path);
++/* Open a Zip file.
++
++   path should contain the full path (by example, on a Windows XP computer 
++      "c:\\zlib\\zlib113.zip" or on an Unix computer "zlib/zlib113.zip". 
++   return NULL if zipfile cannot be opened or doesn't exist
++   return unzFile handle if no error
++
++   NOTE: The "64" function take a const void *pointer, because  the path is just the value passed to the
++   open64_file_func callback. Under Windows, if UNICODE is defined, using fill_fopen64_filefunc, the path 
++   is a pointer to a wide unicode string  (LPCTSTR is LPCWSTR), so const char *does not describe the reality */
++
++extern unzFile ZEXPORT unzOpen2(const char *path, zlib_filefunc_def *pzlib_filefunc_def);
++/* Open a Zip file, like unzOpen, but provide a set of file low level API for read/write operations */
++extern unzFile ZEXPORT unzOpen2_64(const void *path, zlib_filefunc64_def *pzlib_filefunc_def);
++/* Open a Zip file, like unz64Open, but provide a set of file low level API for read/write 64-bit operations */
++
++extern int ZEXPORT unzClose(unzFile file);
++/* Close a ZipFile opened with unzOpen. If there is files inside the .Zip opened with unzOpenCurrentFile,
++   these files MUST be closed with unzipCloseCurrentFile before call unzipClose.
++
++   return UNZ_OK if there is no error */
++
++extern int ZEXPORT unzGetGlobalInfo(unzFile file, unz_global_info *pglobal_info);
++extern int ZEXPORT unzGetGlobalInfo64(unzFile file, unz_global_info64 *pglobal_info);
++/* Write info about the ZipFile in the *pglobal_info structure.
++
++   return UNZ_OK if no error */
++
++extern int ZEXPORT unzGetGlobalComment(unzFile file, char *comment, uint16_t comment_size);
++/* Get the global comment string of the ZipFile, in the comment buffer.
++
++   uSizeBuf is the size of the szComment buffer.
++   return the number of byte copied or an error code <0 */
++
++/***************************************************************************/
++/* Reading the content of the current zipfile, you can open it, read data from it, and close it
++   (you can close it before reading all the file) */
++
++extern int ZEXPORT unzOpenCurrentFile(unzFile file);
++/* Open for reading data the current file in the zipfile.
++
++   return UNZ_OK if no error */
++
++extern int ZEXPORT unzOpenCurrentFilePassword(unzFile file, const char *password);
++/* Open for reading data the current file in the zipfile.
++   password is a crypting password
++
++   return UNZ_OK if no error */
++
++extern int ZEXPORT unzOpenCurrentFile2(unzFile file, int *method, int *level, int raw);
++/* Same as unzOpenCurrentFile, but open for read raw the file (not uncompress)
++   if raw==1 *method will receive method of compression, *level will receive level of compression
++
++   NOTE: you can set level parameter as NULL (if you did not want known level,
++         but you CANNOT set method parameter as NULL */
++
++extern int ZEXPORT unzOpenCurrentFile3(unzFile file, int *method, int *level, int raw, const char *password);
++/* Same as unzOpenCurrentFile, but takes extra parameter password for encrypted files */
++
++extern int ZEXPORT unzReadCurrentFile(unzFile file, voidp buf, uint32_t len);
++/* Read bytes from the current file (opened by unzOpenCurrentFile)
++   buf contain buffer where data must be copied
++   len the size of buf.
++
++   return the number of byte copied if somes bytes are copied
++   return 0 if the end of file was reached
++   return <0 with error code if there is an error (UNZ_ERRNO for IO error, or zLib error for uncompress error) */
++
++extern int ZEXPORT unzGetCurrentFileInfo(unzFile file, unz_file_info *pfile_info, char *filename, 
++    uint16_t filename_size, void *extrafield, uint16_t extrafield_size, char *comment, uint16_t comment_size);
++extern int ZEXPORT unzGetCurrentFileInfo64(unzFile file, unz_file_info64 *pfile_info, char *filename,
++    uint16_t filename_size, void *extrafield, uint16_t extrafield_size, char *comment, uint16_t comment_size);
++/* Get Info about the current file
++
++   pfile_info if != NULL, the *pfile_info structure will contain somes info about the current file
++   filename if != NULL, the file name string will be copied in filename 
++   filename_size is the size of the filename buffer
++   extrafield if != NULL, the extra field information from the central header will be copied in to
++   extrafield_size is the size of the extraField buffer 
++   comment if != NULL, the comment string of the file will be copied in to
++   comment_size is the size of the comment buffer */
++
++extern int ZEXPORT unzGetLocalExtrafield(unzFile file, voidp buf, uint32_t len);
++/* Read extra field from the current file (opened by unzOpenCurrentFile)
++   This is the local-header version of the extra field (sometimes, there is
++   more info in the local-header version than in the central-header)
++
++   if buf == NULL, it return the size of the local extra field
++   if buf != NULL, len is the size of the buffer, the extra header is copied in buf.
++
++   return number of bytes copied in buf, or (if <0) the error code */
++
++extern int ZEXPORT unzCloseCurrentFile(unzFile file);
++/* Close the file in zip opened with unzOpenCurrentFile
++
++   return UNZ_CRCERROR if all the file was read but the CRC is not good */
++
++/***************************************************************************/
++/* Browse the directory of the zipfile */
++
++typedef int (*unzFileNameComparer)(unzFile file, const char *filename1, const char *filename2);
++typedef int (*unzIteratorFunction)(unzFile file);
++typedef int (*unzIteratorFunction2)(unzFile file, unz_file_info64 *pfile_info, char *filename,
++    uint16_t filename_size, void *extrafield, uint16_t extrafield_size, char *comment, uint16_t comment_size);
++
++extern int ZEXPORT unzGoToFirstFile(unzFile file);
++/* Set the current file of the zipfile to the first file.
++
++   return UNZ_OK if no error */
++
++extern int ZEXPORT unzGoToFirstFile2(unzFile file, unz_file_info64 *pfile_info, char *filename,
++    uint16_t filename_size, void *extrafield, uint16_t extrafield_size, char *comment, uint16_t comment_size);
++/* Set the current file of the zipfile to the first file and retrieves the current info on success. 
++   Not as seek intensive as unzGoToFirstFile + unzGetCurrentFileInfo.
++
++   return UNZ_OK if no error */
++
++extern int ZEXPORT unzGoToNextFile(unzFile file);
++/* Set the current file of the zipfile to the next file.
++
++   return UNZ_OK if no error
++   return UNZ_END_OF_LIST_OF_FILE if the actual file was the latest */
++
++extern int ZEXPORT unzGoToNextFile2(unzFile file, unz_file_info64 *pfile_info, char *filename,
++    uint16_t filename_size, void *extrafield, uint16_t extrafield_size, char *comment, uint16_t comment_size);
++/* Set the current file of the zipfile to the next file and retrieves the current 
++   info on success. Does less seeking around than unzGotoNextFile + unzGetCurrentFileInfo.
++
++   return UNZ_OK if no error
++   return UNZ_END_OF_LIST_OF_FILE if the actual file was the latest */
++
++extern int ZEXPORT unzLocateFile(unzFile file, const char *filename, unzFileNameComparer filename_compare_func);
++/* Try locate the file szFileName in the zipfile. For custom filename comparison pass in comparison function.
++
++   return UNZ_OK if the file is found (it becomes the current file)
++   return UNZ_END_OF_LIST_OF_FILE if the file is not found */
++
++/***************************************************************************/
++/* Raw access to zip file */
++
++typedef struct unz_file_pos_s
++{
++    uint32_t pos_in_zip_directory;  /* offset in zip file directory */
++    uint32_t num_of_file;           /* # of file */
++} unz_file_pos;
++
++extern int ZEXPORT unzGetFilePos(unzFile file, unz_file_pos *file_pos);
++extern int ZEXPORT unzGoToFilePos(unzFile file, unz_file_pos *file_pos);
++
++typedef struct unz64_file_pos_s
++{
++    uint64_t pos_in_zip_directory;   /* offset in zip file directory */
++    uint64_t num_of_file;            /* # of file */
++} unz64_file_pos;
++
++extern int ZEXPORT unzGetFilePos64(unzFile file, unz64_file_pos *file_pos);
++extern int ZEXPORT unzGoToFilePos64(unzFile file, const unz64_file_pos *file_pos);
++
++extern int32_t ZEXPORT unzGetOffset(unzFile file);
++extern int64_t ZEXPORT unzGetOffset64(unzFile file);
++/* Get the current file offset */
++
++extern int ZEXPORT unzSetOffset(unzFile file, uint32_t pos);
++extern int ZEXPORT unzSetOffset64(unzFile file, uint64_t pos);
++/* Set the current file offset */
++
++extern int32_t ZEXPORT unzTell(unzFile file);
++extern int64_t ZEXPORT unzTell64(unzFile file);
++/* return current position in uncompressed data */
++
++extern int ZEXPORT unzSeek(unzFile file, uint32_t offset, int origin);
++extern int ZEXPORT unzSeek64(unzFile file, uint64_t offset, int origin);
++/* Seek within the uncompressed data if compression method is storage */
++
++extern int ZEXPORT unzEndOfFile(unzFile file);
++/* return 1 if the end of file was reached, 0 elsewhere */
++
++/***************************************************************************/
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _UNZ_H */
+diff --git a/cpp/open3d/visualization/CMakeLists.txt b/cpp/open3d/visualization/CMakeLists.txt
+index fd794dce..e64815d8 100644
+--- a/cpp/open3d/visualization/CMakeLists.txt
++++ b/cpp/open3d/visualization/CMakeLists.txt
+@@ -98,42 +98,6 @@ if (BUILD_GUI)
+     )
+ endif()
+ 
+-
+-include(Open3DAddEncodedShader)
+-
+-open3d_add_encoded_shader(shader
+-    OUTPUT_HEADER
+-    shader/Shader.h
+-    SOURCES
+-    shader/glsl/ImageFragmentShader.glsl
+-    shader/glsl/ImageMaskFragmentShader.glsl
+-    shader/glsl/ImageMaskVertexShader.glsl
+-    shader/glsl/ImageVertexShader.glsl
+-    shader/glsl/NormalFragmentShader.glsl
+-    shader/glsl/NormalVertexShader.glsl
+-    shader/glsl/PhongFragmentShader.glsl
+-    shader/glsl/PhongVertexShader.glsl
+-    shader/glsl/PickingFragmentShader.glsl
+-    shader/glsl/PickingVertexShader.glsl
+-    shader/glsl/RGBDImageFragmentShader.glsl
+-    shader/glsl/Simple2DFragmentShader.glsl
+-    shader/glsl/Simple2DVertexShader.glsl
+-    shader/glsl/SimpleBlackFragmentShader.glsl
+-    shader/glsl/SimpleBlackVertexShader.glsl
+-    shader/glsl/SimpleFragmentShader.glsl
+-    shader/glsl/SimpleVertexShader.glsl
+-    shader/glsl/TexturePhongFragmentShader.glsl
+-    shader/glsl/TexturePhongVertexShader.glsl
+-    shader/glsl/TextureSimpleFragmentShader.glsl
+-    shader/glsl/TextureSimpleVertexShader.glsl
+-)
+-
+-# Source group for Visual Studio
+-add_source_group(shader/glsl)
+-
+-add_dependencies(visualization shader)
+-
+-
+ open3d_show_and_abort_on_warning(visualization)
+ open3d_set_global_properties(visualization)
+ open3d_set_open3d_lib_properties(visualization)
+diff --git a/cpp/pybind/CMakeLists.txt b/cpp/pybind/CMakeLists.txt
+index 6a3c1506..414b424f 100644
+--- a/cpp/pybind/CMakeLists.txt
++++ b/cpp/pybind/CMakeLists.txt
+@@ -5,6 +5,7 @@ endif()
+ # We need to get python version to configure some meta files
+ set(PYTHON_VERSION "${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}")
+ 
++find_package(pybind11 REQUIRED)
+ 
+ pybind11_add_module(pybind)
+ 
+diff --git a/cpp/tools/CMakeLists.txt b/cpp/tools/CMakeLists.txt
+index 9d5f681a..97b90641 100644
+--- a/cpp/tools/CMakeLists.txt
++++ b/cpp/tools/CMakeLists.txt
+@@ -4,7 +4,7 @@ macro(open3d_add_tool TOOL_NAME)
+     add_executable(${TOOL_NAME})
+ 
+     target_sources(${TOOL_NAME} PRIVATE "${TOOL_NAME}.cpp")
+-    target_link_libraries(${TOOL_NAME} PRIVATE Open3D::Open3D ${ARGN})
++    target_link_libraries(${TOOL_NAME} PRIVATE Open3D::Open3D -lcrypto -lcurl -lopenblas ${ARGN})
+ 
+     set_target_properties(${TOOL_NAME} PROPERTIES FOLDER "Tools")
+     open3d_show_and_abort_on_warning(${TOOL_NAME})
+diff --git a/cpp/tools/ManuallyAlignPointCloud/CMakeLists.txt b/cpp/tools/ManuallyAlignPointCloud/CMakeLists.txt
+index 99da7e93..b1dc821d 100644
+--- a/cpp/tools/ManuallyAlignPointCloud/CMakeLists.txt
++++ b/cpp/tools/ManuallyAlignPointCloud/CMakeLists.txt
+@@ -9,6 +9,9 @@ target_link_libraries(ManuallyAlignPointCloud PRIVATE
+     Open3D::Open3D
+     Open3D::3rdparty_jsoncpp
+     Open3D::3rdparty_tinyfiledialogs
++    -lcrypto
++    -lcurl 
++    -lopenblas
+ )
+ 
+ set_target_properties(ManuallyAlignPointCloud PROPERTIES FOLDER "Tools")
+diff --git a/examples/cpp/CMakeLists.txt b/examples/cpp/CMakeLists.txt
+index d825af29..dacbf7b3 100644
+--- a/examples/cpp/CMakeLists.txt
++++ b/examples/cpp/CMakeLists.txt
+@@ -4,7 +4,7 @@ macro(open3d_add_example EXAMPLE_CPP_NAME)
+     add_executable(${EXAMPLE_CPP_NAME})
+ 
+     target_sources(${EXAMPLE_CPP_NAME} PRIVATE "${EXAMPLE_CPP_NAME}.cpp")
+-    target_link_libraries(${EXAMPLE_CPP_NAME} PRIVATE Open3D::Open3D ${ARGN})
++    target_link_libraries(${EXAMPLE_CPP_NAME} PRIVATE Open3D::Open3D -lcrypto -lcurl -lopenblas ${ARGN})
+ 
+     # Don't use open3d_link_3rdparty_libraries(${EXAMPLE_CPP_NAME}).
+     # Unlike benchmarks, examples are intended as standalone apps that link
+diff --git a/examples/test_data/download_file_list.json b/examples/test_data/download_file_list.json
+index acd63c6c..aeeb98a0 100644
+--- a/examples/test_data/download_file_list.json
++++ b/examples/test_data/download_file_list.json
+@@ -2,12 +2,12 @@
+     "RGBD/raycast_vtx_004.npy": {
+         "url": "https://github.com/isl-org/open3d_downloads/raw/master/RGBD/raycast_vtx_004.npy",
+         "path": "RGBD/raycast_vtx_004.npy",
+-        "sha256": "ca5d94ee3306d922f6967369def4793b12aa94e95a05550857f47a8f17ab83e6"
++        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "RGBD/normal_map.npy": {
+         "url": "https://github.com/isl-org/open3d_downloads/raw/master/RGBD/normal_map.npy",
+         "path": "RGBD/normal_map.npy",
+-        "sha256": "ce3eb60bef47179e9099bad2efecf76dac5cdb305c3c1dc45bd8dfd34502586f"
++        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     },
+     "RGBD/vertex_map.npy": {
+         "url": "https://github.com/isl-org/open3d_downloads/raw/master/RGBD/vertex_map.npy",
+@@ -34,4 +34,4 @@
+         "path": "tests/cube.obj",
+         "sha256": "a72ae892b566c1204cfaaf676884c763442fce9f9c5be97017e7e7ffcd3c7066"
+     }
+-}
+\ No newline at end of file
++}
+-- 
+2.25.1
+

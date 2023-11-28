@@ -1,0 +1,37 @@
+From bc016ecd15ccc10306724dd2502519f8934f18c5 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Thu, 20 Apr 2023 14:48:11 +0800
+Subject: [PATCH 2/2] Revert: cmake: fix project packaging
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 486363f..2ee0720 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -240,7 +240,8 @@ modernize_target_link_libraries(
+   Python${PYTHON_VERSION_MAJOR}::NumPy
+   INCLUDE_DIRS
+   ${NUMPY_INCLUDE_DIRS}
+-  ${PYTHON_INCLUDE_DIR})
++  ${PYTHON_INCLUDE_DIR}
++  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+ 
+ if(SUFFIX_SO_VERSION)
+   set_target_properties(${PROJECT_NAME} PROPERTIES SOVERSION ${PROJECT_VERSION})
+@@ -265,6 +266,9 @@ install(
+ add_header_group(${PROJECT_NAME}_HEADERS)
+ add_source_group(${PROJECT_NAME}_SOURCES)
+ 
++TARGET_INCLUDE_DIRECTORIES(${PROJECT_NAME} INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>")
++SET(PUBLIC_HEADER ${${PROJECT_NAME}_HEADERS})
++
+ # Install package for ROS
+ install(FILES package.xml DESTINATION share/eigenpy)
+ # Allows Colcon to find non-Ament packages when using workspace underlays
+-- 
+2.17.1
+

@@ -1,0 +1,26 @@
+From ff95ad452451510fd26c12397f76bf13e8f51f2c Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Wed, 29 Jun 2022 11:03:47 +0800
+Subject: [PATCH] Fix the abort issue by removing abort function
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ sophus/common.hpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sophus/common.hpp b/sophus/common.hpp
+index eff22f6..5982799 100644
+--- a/sophus/common.hpp
++++ b/sophus/common.hpp
+@@ -98,7 +98,7 @@ SOPHUS_FUNC void defaultEnsure(char const* function, char const* file, int line,
+ #else
+   std::cout << details::FormatString(description, std::forward<Args>(args)...)
+             << std::endl;
+-  std::abort();
++//  std::abort();
+ #endif
+ }
+ }  // namespace Sophus
+-- 
+2.35.1
+

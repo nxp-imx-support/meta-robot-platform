@@ -1,0 +1,76 @@
+From 4a4a84a030b20855f0033efa6a7bc960d2df1add Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Thu, 9 Mar 2023 10:47:16 +0800
+Subject: [PATCH] Use hwrng to improve the performance of eCryptfs when getting
+ random number
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ fs/ecryptfs/crypto.c | 30 +++++++++++++++++++++++++++---
+ 1 file changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/fs/ecryptfs/crypto.c b/fs/ecryptfs/crypto.c
+index e3f5d7f3c8a0..6befab7c0207 100644
+--- a/fs/ecryptfs/crypto.c
++++ b/fs/ecryptfs/crypto.c
+@@ -74,6 +74,27 @@ static int ecryptfs_calculate_md5(char *dst,
+ 	return rc;
+ }
+ 
++static int get_hw_random_bytes(void *buf, int nbytes)
++{
++	struct file *filp;
++	loff_t pos = 0;
++
++	filp = filp_open("/dev/hwrng", O_RDONLY, 0);
++	if (IS_ERR(filp)) {
++		printk("hwrng open failed\n");
++		return -ENOENT;
++	}
++
++	if (kernel_read(filp, (char *)buf, nbytes, &pos) < 0) {
++		printk("hwrng read failed\n");
++		return -EIO;
++	}
++
++	filp_close(filp, NULL);
++
++	return 0;
++}
++
+ static int ecryptfs_crypto_api_algify_cipher_name(char **algified_name,
+ 						  char *cipher_name,
+ 						  char *chaining_modifier)
+@@ -659,7 +680,8 @@ int ecryptfs_compute_root_iv(struct ecryptfs_crypt_stat *crypt_stat)
+ 
+ static void ecryptfs_generate_new_key(struct ecryptfs_crypt_stat *crypt_stat)
+ {
+-	get_random_bytes(crypt_stat->key, crypt_stat->key_size);
++	if (0 != get_hw_random_bytes(crypt_stat->key, crypt_stat->key_size))
++		get_random_bytes(crypt_stat->key, crypt_stat->key_size);
+ 	crypt_stat->flags |= ECRYPTFS_KEY_VALID;
+ 	ecryptfs_compute_root_iv(crypt_stat);
+ 	if (unlikely(ecryptfs_verbosity > 0)) {
+@@ -872,7 +894,8 @@ static void write_ecryptfs_marker(char *page_virt, size_t *written)
+ {
+ 	u32 m_1, m_2;
+ 
+-	get_random_bytes(&m_1, (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2));
++	if (0 != get_hw_random_bytes(&m_1, (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2)))
++		get_random_bytes(&m_1, (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2));
+ 	m_2 = (m_1 ^ MAGIC_ECRYPTFS_MARKER);
+ 	put_unaligned_be32(m_1, page_virt);
+ 	page_virt += (MAGIC_ECRYPTFS_MARKER_SIZE_BYTES / 2);
+@@ -1569,7 +1592,8 @@ ecryptfs_process_key_cipher(struct crypto_skcipher **key_tfm,
+ 	crypto_skcipher_set_flags(*key_tfm, CRYPTO_TFM_REQ_FORBID_WEAK_KEYS);
+ 	if (*key_size == 0)
+ 		*key_size = crypto_skcipher_max_keysize(*key_tfm);
+-	get_random_bytes(dummy_key, *key_size);
++	if (0 != get_hw_random_bytes(dummy_key, *key_size))
++		get_random_bytes(dummy_key, *key_size);
+ 	rc = crypto_skcipher_setkey(*key_tfm, dummy_key, *key_size);
+ 	if (rc) {
+ 		printk(KERN_ERR "Error attempting to set key of size [%zd] for "
+-- 
+2.35.1
+

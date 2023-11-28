@@ -1,0 +1,26 @@
+From 0d2cc3df14371de74ab1e2dfa2bc955a8acaafb7 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 21 Apr 2023 14:32:19 +0800
+Subject: [PATCH] CMakeLists.txt: remove fmt version
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9f72d40..e74c40a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -15,7 +15,7 @@ find_package(ament_cmake REQUIRED)
+ 
+ find_package(eigen3_cmake_module REQUIRED)
+ find_package(Eigen3)
+-find_package(fmt 6.1.2 EXACT REQUIRED)
++find_package(fmt EXACT REQUIRED)
+ 
+ ##############################################################################
+ # Project Configuration
+-- 
+2.35.1
+

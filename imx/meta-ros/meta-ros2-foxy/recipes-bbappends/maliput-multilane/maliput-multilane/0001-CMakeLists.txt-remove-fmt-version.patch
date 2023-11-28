@@ -1,0 +1,26 @@
+From 5bccb824b4c471ab06c5a50a46f18dea9ba7dac6 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 21 Apr 2023 14:49:04 +0800
+Subject: [PATCH] CMakeLists.txt: remove fmt version
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0737c33..59daa2b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -12,7 +12,7 @@ project(maliput_multilane LANGUAGES C CXX VERSION 3.0.0)
+ message(STATUS "\n\n====== Finding 3rd Party Packages ======\n")
+ 
+ find_package(ament_cmake REQUIRED)
+-find_package(fmt 6.1.2 EXACT REQUIRED)
++find_package(fmt EXACT REQUIRED)
+ find_package(maliput REQUIRED)
+ find_package(maliput_drake REQUIRED)
+ find_package(yaml-cpp REQUIRED)
+-- 
+2.35.1
+

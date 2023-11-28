@@ -1,0 +1,79 @@
+From 5fb8cfd76cb3ebdda1b554ca4a9dbec3b16c2dc7 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 21 Feb 2023 11:24:27 +0800
+Subject: [PATCH] fix build error in Yocto
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 32 +++++++++++++++-----------------
+ 1 file changed, 15 insertions(+), 17 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5bb31f0..b23149b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -28,20 +28,15 @@ find_package(catkin REQUIRED
+ find_package(OpenCV REQUIRED)
+ find_package(Eigen3 REQUIRED)
+ find_package(Boost REQUIRED)
+-find_package(PkgConfig REQUIRED)
++find_package(PkgConfig)
+ find_package(Threads REQUIRED)
+-pkg_search_module(LIBUVC REQUIRED libuvc)
+-if (NOT LIBUVC_FOUND)
+-  message(FATAL_ERROR "libuvc is not found")
+-endif ()
+-pkg_search_module(GLOG REQUIRED libglog)
+-
+-if (NOT GLOG_FOUND)
+-  message(FATAL_ERROR "glog is not found")
+-endif ()
++find_package(libuvc REQUIRED)
++find_package(glog REQUIRED)
++find_package(PkgConfig)
++pkg_check_modules(LIBUSB1 libusb-1.0)
+ 
+-execute_process(COMMAND uname -m OUTPUT_VARIABLE MACHINES)
+-execute_process(COMMAND getconf LONG_BIT OUTPUT_VARIABLE MACHINES_BIT)
++set(MACHINES  ${CMAKE_SYSTEM_PROCESSOR})
++set(MACHINES_BIT  64)
+ message(STATUS "ORRBEC Machine : ${MACHINES}")
+ message(STATUS "ORRBEC Machine Bits : ${MACHINES_BIT}")
+ if ((${MACHINES} MATCHES "x86_64") AND (${MACHINES_BIT} MATCHES "64"))
+@@ -142,7 +137,8 @@ target_link_libraries(${PROJECT_NAME}
+   ${CMAKE_THREAD_LIBS_INIT}
+   ${OpenCV_LIBS}
+   ${GLOG_LIBRARIES}
+-  ${LIBUVC_LIBRARIES}
++  -luvc
++  -lusb-1.0
+   )
+ 
+ add_dependencies(${PROJECT_NAME}
+@@ -172,8 +168,9 @@ target_link_libraries(${PROJECT_NAME}_node
+   ${catkin_LIBRARIES}
+   ${CMAKE_THREAD_LIBS_INIT}
+   ${OpenCV_LIBS}
+-  ${LIBUVC_LIBRARIES}
+-  ${GLOG_LIBRARIES}
++  -luvc
++  -lusb-1.0
++  -lglog
+   )
+ 
+ add_executable(list_devices_node
+@@ -196,8 +193,9 @@ target_link_libraries(list_devices_node
+   ${catkin_LIBRARIES}
+   ${CMAKE_THREAD_LIBS_INIT}
+   ${OpenCV_LIBS}
+-  ${GLOG_LIBRARIES}
+-  ${LIBUVC_LIBRARIES}
++  -lglog
++  -luvc
++  -lusb-1.0
+   )
+ 
+ add_executable(cleanup_shm_node
+-- 
+2.35.1
+

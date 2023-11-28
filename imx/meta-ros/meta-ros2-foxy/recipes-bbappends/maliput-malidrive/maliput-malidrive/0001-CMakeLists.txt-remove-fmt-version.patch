@@ -1,0 +1,26 @@
+From fa81d3248eff93bdc2a1b0107f2eb0c221909a4d Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Fri, 21 Apr 2023 14:45:49 +0800
+Subject: [PATCH] CMakeLists.txt: remove fmt version
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 99cdf49..452fd30 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -19,7 +19,7 @@ include(GNUInstallDirs)
+ message(STATUS "\n\n====== Finding 3rd Party Packages ======\n")
+ 
+ find_package(ament_cmake REQUIRED)
+-find_package(fmt 6.1.2 EXACT REQUIRED)
++find_package(fmt EXACT REQUIRED)
+ 
+ find_package(maliput REQUIRED)
+ find_package(maliput_drake REQUIRED)
+-- 
+2.35.1
+

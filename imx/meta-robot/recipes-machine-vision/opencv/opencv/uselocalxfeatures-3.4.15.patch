@@ -1,0 +1,29 @@
+diff --git a/modules/xfeatures2d/CMakeLists.txt b/modules/xfeatures2d/CMakeLists.txt
+index bbc540e..59322c8 100644
+--- a/modules/xfeatures2d/CMakeLists.txt
++++ b/modules/xfeatures2d/CMakeLists.txt
+@@ -9,22 +9,7 @@ if(NOT OPENCV_SKIP_FEATURES2D_DOWNLOADING)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/download_vgg.cmake)
+   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/download_boostdesc.cmake)
+   set(DOWNLOAD_DIR "${OpenCV_BINARY_DIR}/downloads/xfeatures2d")
+-  download_boost_descriptors("${DOWNLOAD_DIR}" boost_status)
+-  download_vgg_descriptors("${DOWNLOAD_DIR}" vgg_status)
+-  if(boost_status)
+-    ocv_append_source_file_compile_definitions(${CMAKE_CURRENT_SOURCE_DIR}/src/boostdesc.cpp "OPENCV_XFEATURES2D_HAS_BOOST_DATA=1")
+-  else()
+-    message(WARNING "features2d: Boost descriptor implementation is not available due to missing data (download failed: https://github.com/opencv/opencv_contrib/issues/1301)")
+-  endif()
+-  if(vgg_status)
+-    ocv_append_source_file_compile_definitions(${CMAKE_CURRENT_SOURCE_DIR}/src/vgg.cpp "OPENCV_XFEATURES2D_HAS_VGG_DATA=1")
+-  else()
+-    message(WARNING "features2d: VGG descriptor implementation is not available due to missing data (download failed: https://github.com/opencv/opencv_contrib/issues/1301)")
+-  endif()
+-
+-  if(boost_status OR vgg_status)
+-    ocv_module_include_directories("${DOWNLOAD_DIR}")
+-  endif()
++  ocv_module_include_directories("${DOWNLOAD_DIR}")
+ endif()
+ 
+ if(TARGET opencv_test_${name})
+ 

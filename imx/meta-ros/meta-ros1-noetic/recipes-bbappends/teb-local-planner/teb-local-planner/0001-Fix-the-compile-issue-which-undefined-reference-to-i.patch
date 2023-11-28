@@ -1,0 +1,64 @@
+From fe109cc70da8cbeaa183216cac19d86b77745972 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Wed, 9 Aug 2023 15:39:42 +0800
+Subject: [PATCH] Fix the compile issue which undefined reference to int
+ boost::math::sign
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt                          | 8 ++++----
+ include/teb_local_planner/h_signature.h | 1 +
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 97fe249..15b18ae 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-cmake_minimum_required(VERSION 3.1)
++cmake_minimum_required(VERSION 3.5...3.16)
+ project(teb_local_planner)
+ 
+ # Set to Release in order to speed up the program significantly
+@@ -31,7 +31,7 @@ message(STATUS "System: ${CMAKE_SYSTEM}")
+ ## System dependencies are found with CMake's conventions
+ SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake_modules)
+ message(STATUS "${CMAKE_MODULE_PATH}")
+-find_package(Boost REQUIRED COMPONENTS system thread graph)
++find_package(Boost REQUIRED COMPONENTS system thread graph math_c99)
+ find_package(SUITESPARSE REQUIRED)
+ find_package(G2O REQUIRED)
+ 
+@@ -48,7 +48,7 @@ elseif (EXISTS "FindEigen.cmake")
+ endif (EXISTS "FindEigen3.cmake")
+ 
+ set(EXTERNAL_INCLUDE_DIRS ${Eigen_INCLUDE_DIRS} ${SUITESPARSE_INCLUDE_DIRS} ${G2O_INCLUDE_DIR})
+-set(EXTERNAL_LIBS ${SUITESPARSE_LIBRARIES} ${G2O_LIBRARIES})
++set(EXTERNAL_LIBS ${SUITESPARSE_LIBRARIES} ${G2O_LIBRARIES} -lboost_math_c99)
+ 
+ ## Uncomment this if the package has a setup.py. This macro ensures
+ ## modules and global scripts declared therein get installed
+@@ -209,7 +209,7 @@ target_link_libraries(teb_local_planner
+ add_executable(test_optim_node src/test_optim_node.cpp)
+ 
+ target_link_libraries(test_optim_node
+-   teb_local_planner
++   teb_local_planner   
+    ${EXTERNAL_LIBS}
+    ${catkin_LIBRARIES}
+ )
+diff --git a/include/teb_local_planner/h_signature.h b/include/teb_local_planner/h_signature.h
+index 8837950..3055b40 100644
+--- a/include/teb_local_planner/h_signature.h
++++ b/include/teb_local_planner/h_signature.h
+@@ -51,6 +51,7 @@
+ #include <functional>
+ #include <vector>
+ #include <iterator>
++#include <boost/math/special_functions/sign.hpp>
+ 
+ 
+ namespace teb_local_planner
+-- 
+2.35.1
+

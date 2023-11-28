@@ -1,0 +1,12 @@
+diff -Naur empy-3.3.2-origin/setup.py empy-3.3.2-modify/setup.py
+--- empy-3.3.2-origin/setup.py	2023-02-14 13:52:48.373911912 +0800
++++ empy-3.3.2-modify/setup.py	2023-02-14 13:54:13.122038266 +0800
+@@ -2,7 +2,7 @@
+ #
+ # $Id: setup.py.pre 3116 2004-01-14 02:53:02Z max $ $Date: 2004-01-13 18:53:02 -0800 (Tue, 13 Jan 2004) $
+ 
+-from distutils.core import setup
++from setuptools import setup
+ 
+ DESCRIPTION = "A templating system for Python."
+ 

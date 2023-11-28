@@ -1,0 +1,49 @@
+From a647deabd9828e1a37594f314964d0e13c920f66 Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Tue, 28 Mar 2023 17:17:01 +0800
+Subject: [PATCH] Change console to UART1 for iMX8M Plus AI Robot board.
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c | 4 ++--
+ plat/imx/imx8m/imx8mp/platform.mk         | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c b/plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c
+index 348f90045..f5187076d 100644
+--- a/plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c
++++ b/plat/imx/imx8m/imx8mp/imx8mp_bl31_setup.c
+@@ -73,7 +73,7 @@ static const struct imx_rdc_cfg rdc[] = {
+ 
+ 
+ 	/* peripherals domain permission */
+-	RDC_PDAPn(RDC_PDAP_UART2, D0R | D0W),
++	RDC_PDAPn(RDC_PDAP_UART1, D0R | D0W),
+ 	RDC_PDAPn(RDC_PDAP_WDOG1, D0R | D0W),
+ 	RDC_PDAPn(RDC_PDAP_RDC, D0R | D0W | D1R),
+ 
+@@ -135,7 +135,7 @@ static const struct imx_rdc_cfg rdc[] = {
+ 	RDC_MDAn(RDC_MDA_M7, DID1),
+ 
+ 	/* peripherals domain permission */
+-	RDC_PDAPn(RDC_PDAP_UART2, D0R | D0W),
++	RDC_PDAPn(RDC_PDAP_UART1, D0R | D0W),
+ 	RDC_PDAPn(RDC_PDAP_WDOG1, D0R | D0W),
+ 	RDC_PDAPn(RDC_PDAP_RDC, D0R | D0W | D1R),
+ 
+diff --git a/plat/imx/imx8m/imx8mp/platform.mk b/plat/imx/imx8m/imx8mp/platform.mk
+index cbac42819..39aa68500 100644
+--- a/plat/imx/imx8m/imx8mp/platform.mk
++++ b/plat/imx/imx8m/imx8mp/platform.mk
+@@ -154,7 +154,7 @@ $(eval $(call add_define,BL32_BASE))
+ BL32_SIZE		?=	0x2000000
+ $(eval $(call add_define,BL32_SIZE))
+ 
+-IMX_BOOT_UART_BASE	?=	0x30890000
++IMX_BOOT_UART_BASE	?=	0x30860000
+ $(eval $(call add_define,IMX_BOOT_UART_BASE))
+ 
+ $(eval $(call add_define,IMX8M_DDR4_DVFS))
+-- 
+2.35.1
+

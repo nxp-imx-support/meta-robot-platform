@@ -1,0 +1,1673 @@
+diff -uprN gmssl-origin/apps/build.info gmssl-modify/apps/build.info
+--- gmssl-origin/apps/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/apps/build.info	2020-10-30 15:26:45.833238203 +0800
+@@ -16,7 +16,7 @@ IF[{- !$disabled{apps} -}]
+           sm9param.c gensm9.c sm9.c sm9utl.c \
+           {- $target{apps_aux_src} -}
+   INCLUDE[gmssl]=.. ../include
+-  DEPEND[gmssl]=../libssl
++  DEPEND[gmssl]=../libgmssl
+ 
+   SCRIPTS=CA.pl {- $tsget_name -}
+   SOURCE[CA.pl]=CA.pl.in
+diff -uprN gmssl-origin/build.info gmssl-modify/build.info
+--- gmssl-origin/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/build.info	2020-10-30 17:08:36.939392643 +0800
+@@ -1,9 +1,9 @@
+-LIBS=libcrypto libssl
+-ORDINALS[libcrypto]=crypto
+-ORDINALS[libssl]=ssl
+-INCLUDE[libcrypto]=. crypto/include include
+-INCLUDE[libssl]=. include
+-DEPEND[libssl]=libcrypto
++LIBS=libgmcrypto libgmssl
++ORDINALS[libgmcrypto]=crypto
++ORDINALS[libgmssl]=ssl
++INCLUDE[libgmcrypto]=. crypto/include include
++INCLUDE[libgmssl]=. include
++DEPEND[libgmssl]=libgmcrypto
+ 
+ # Empty DEPEND "indices" means the dependencies are expected to be built
+ # unconditionally before anything else.
+@@ -18,14 +18,14 @@ GENERATE[crypto/include/internal/dso_con
+ 
+ 
+ IF[{- $config{target} =~ /^Cygwin/ -}]
+- SHARED_NAME[libcrypto]=cygcrypto-{- $config{shlib_major}.".".$config{shlib_minor} -}
+- SHARED_NAME[libssl]=cygssl-{- $config{shlib_major}.".".$config{shlib_minor} -}
++ SHARED_NAME[libgmcrypto]=cygcrypto-{- $config{shlib_major}.".".$config{shlib_minor} -}
++ SHARED_NAME[libgmssl]=cygssl-{- $config{shlib_major}.".".$config{shlib_minor} -}
+ ELSIF[{- $config{target} =~ /^mingw/ -}]
+- SHARED_NAME[libcrypto]=libcrypto-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $config{target} eq "mingw64" ? "-x64" : "" -}
+- SHARED_NAME[libssl]=libssl-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $config{target} eq "mingw64" ? "-x64" : "" -}
++ SHARED_NAME[libgmcrypto]=libgmcrypto-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $config{target} eq "mingw64" ? "-x64" : "" -}
++ SHARED_NAME[libgmssl]=libgmssl-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $config{target} eq "mingw64" ? "-x64" : "" -}
+ ELSIF[{- $config{target} =~ /^VC-/ -}]
+- SHARED_NAME[libcrypto]=libcrypto-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $target{multilib} -}
+- SHARED_NAME[libssl]=libssl-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $target{multilib} -}
++ SHARED_NAME[libgmcrypto]=libgmcrypto-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $target{multilib} -}
++ SHARED_NAME[libgmssl]=libgmssl-{- $config{shlib_major}."_".$config{shlib_minor} -}{- $target{multilib} -}
+ ENDIF
+ 
+ # VMS has a cultural standard where all libraries are prefixed.
+@@ -34,8 +34,8 @@ ENDIF
+ # Also, it seems it's usual to have the pointer size the libraries
+ # were built for as part of the name.
+ IF[{- $config{target} =~ /^vms/ -}]
+- RENAME[libcrypto]=ossl$libcrypto{- $target{pointer_size} -}
+- RENAME[libssl]=ossl$libssl{- $target{pointer_size} -}
+- SHARED_NAME[libcrypto]=ossl$libcrypto{- sprintf "%02d%02d", $config{shlib_major}, $config{shlib_minor} -}_shr{- $target{pointer_size} -}
+- SHARED_NAME[libssl]=ossl$libssl{- sprintf "%02d%02d", $config{shlib_major}, $config{shlib_minor} -}_shr{- $target{pointer_size} -}
++ RENAME[libgmcrypto]=ossl$libcrypto{- $target{pointer_size} -}
++ RENAME[libgmssl]=ossl$libssl{- $target{pointer_size} -}
++ SHARED_NAME[libgmcrypto]=ossl$libcrypto{- sprintf "%02d%02d", $config{shlib_major}, $config{shlib_minor} -}_shr{- $target{pointer_size} -}
++ SHARED_NAME[libgmssl]=ossl$libssl{- sprintf "%02d%02d", $config{shlib_major}, $config{shlib_minor} -}_shr{- $target{pointer_size} -}
+ ENDIF
+diff -uprN gmssl-origin/Configurations/unix-Makefile.tmpl gmssl-modify/Configurations/unix-Makefile.tmpl
+--- gmssl-origin/Configurations/unix-Makefile.tmpl	2020-10-30 15:23:38.000000000 +0800
++++ gmssl-modify/Configurations/unix-Makefile.tmpl	2020-10-30 16:57:41.880931004 +0800
+@@ -230,7 +230,7 @@ LANG=C
+ {- dependmagic('build_programs'); -}: build_programs_nodep
+ 
+ build_generated: $(GENERATED_MANDATORY)
+-build_libs_nodep: libcrypto.pc libssl.pc openssl.pc
++build_libs_nodep: libgmcrypto.pc libgmssl.pc openssl.pc
+ build_engines_nodep: $(ENGINES)
+ build_programs_nodep: $(PROGRAMS) $(SCRIPTS)
+ 
+@@ -285,7 +285,7 @@ clean: libclean
+ 	-$(RM) `find . -name '*{- $objext -}' -a \! -path "./.git/*"`
+ 	$(RM) core
+ 	$(RM) tags TAGS
+-	$(RM) openssl.pc libcrypto.pc libssl.pc
++	$(RM) openssl.pc libgmcrypto.pc libgmssl.pc
+ 	-$(RM) `find . -type l -a \! -path "./.git/*"`
+ 	$(RM) $(TARFILE)
+ 
+@@ -398,12 +398,12 @@ install_dev:
+ 	done
+ 	@ : {- output_on() if $disabled{shared}; "" -}
+ 	@$(PERL) $(SRCDIR)/util/mkdir-p.pl $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
+-	@echo "install libcrypto.pc -> $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libcrypto.pc"
+-	@cp libcrypto.pc $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
+-	@chmod 644 $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libcrypto.pc
+-	@echo "install libssl.pc -> $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libssl.pc"
+-	@cp libssl.pc $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
+-	@chmod 644 $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libssl.pc
++	@echo "install libgmcrypto.pc -> $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libgmcrypto.pc"
++	@cp libgmcrypto.pc $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
++	@chmod 644 $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libgmcrypto.pc
++	@echo "install libgmssl.pc -> $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libgmssl.pc"
++	@cp libgmssl.pc $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
++	@chmod 644 $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libgmssl.pc
+ 	@echo "install openssl.pc -> $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/openssl.pc"
+ 	@cp openssl.pc $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
+ 	@chmod 644 $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/openssl.pc
+@@ -446,8 +446,8 @@ uninstall_dev:
+ 		: {- output_on() unless windowsdll(); "" -}; \
+ 	done
+ 	@ : {- output_on() if $disabled{shared}; "" -}
+-	$(RM) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libcrypto.pc
+-	$(RM) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libssl.pc
++	$(RM) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libgmcrypto.pc
++	$(RM) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/libgmssl.pc
+ 	$(RM) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig/openssl.pc
+ 	-$(RMDIR) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)/pkgconfig
+ 	-$(RMDIR) $(DESTDIR)$(INSTALLTOP)/$(LIBDIR)
+@@ -779,34 +779,34 @@ FORCE:
+ 
+ # Building targets ###################################################
+ 
+-libcrypto.pc libssl.pc openssl.pc: configdata.pm $(LIBS) {- join(" ",map { shlib_simple($_) } @{$unified_info{libraries}}) -}
+-libcrypto.pc:
++libgmcrypto.pc libgmssl.pc openssl.pc: configdata.pm $(LIBS) {- join(" ",map { shlib_simple($_) } @{$unified_info{libraries}}) -}
++libgmcrypto.pc:
+ 	@ ( echo 'prefix=$(INSTALLTOP)'; \
+ 	    echo 'exec_prefix=$${prefix}'; \
+ 	    echo 'libdir=$${exec_prefix}/$(LIBDIR)'; \
+ 	    echo 'includedir=$${prefix}/include'; \
+ 	    echo 'enginesdir=$${libdir}/engines-{- $sover -}'; \
+ 	    echo ''; \
+-	    echo 'Name: GmSSL-libcrypto'; \
++	    echo 'Name: GmSSL-libgmcrypto'; \
+ 	    echo 'Description: GmSSL cryptography library'; \
+ 	    echo 'Version: '$(VERSION); \
+ 	    echo 'Libs: -L$${libdir} -lcrypto'; \
+ 	    echo 'Libs.private: $(EX_LIBS)'; \
+-	    echo 'Cflags: -I$${includedir}' ) > libcrypto.pc
++	    echo 'Cflags: -I$${includedir}' ) > libgmcrypto.pc
+ 
+-libssl.pc:
++libgmssl.pc:
+ 	@ ( echo 'prefix=$(INSTALLTOP)'; \
+ 	    echo 'exec_prefix=$${prefix}'; \
+ 	    echo 'libdir=$${exec_prefix}/$(LIBDIR)'; \
+ 	    echo 'includedir=$${prefix}/include'; \
+ 	    echo ''; \
+-	    echo 'Name: GmSSL-libssl'; \
++	    echo 'Name: GmSSL-libgmssl'; \
+ 	    echo 'Description: Secure Sockets Layer and cryptography libraries'; \
+ 	    echo 'Version: '$(VERSION); \
+-	    echo 'Requires.private: libcrypto'; \
++	    echo 'Requires.private: libgmcrypto'; \
+ 	    echo 'Libs: -L$${libdir} -lssl'; \
+ 	    echo 'Libs.private: $(EX_LIBS)'; \
+-	    echo 'Cflags: -I$${includedir}' ) > libssl.pc
++	    echo 'Cflags: -I$${includedir}' ) > libgmssl.pc
+ 
+ openssl.pc:
+ 	@ ( echo 'prefix=$(INSTALLTOP)'; \
+@@ -817,7 +817,7 @@ openssl.pc:
+ 	    echo 'Name: GmSSL'; \
+ 	    echo 'Description: Secure Sockets Layer and cryptography libraries and tools'; \
+ 	    echo 'Version: '$(VERSION); \
+-	    echo 'Requires: libssl libcrypto' ) > openssl.pc
++	    echo 'Requires: libgmssl libgmcrypto' ) > openssl.pc
+ 
+ configdata.pm: $(SRCDIR)/Configure $(SRCDIR)/config {- join(" ", @{$config{build_file_templates}}, @{$config{build_infos}}, @{$config{conf_files}}) -}
+ 	@echo "Detected changed: $?"
+diff -uprN gmssl-origin/crypto/aes/build.info gmssl-modify/crypto/aes/build.info
+--- gmssl-origin/crypto/aes/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/aes/build.info	2020-10-30 16:58:12.881808942 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         aes_misc.c aes_ecb.c aes_cfb.c aes_ofb.c \
+         aes_ige.c aes_wrap.c {- $target{aes_asm_src} -}
+ 
+diff -uprN gmssl-origin/crypto/asn1/build.info gmssl-modify/crypto/asn1/build.info
+--- gmssl-origin/crypto/asn1/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/asn1/build.info	2020-10-30 16:58:23.377008471 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         a_object.c a_bitstr.c a_utctm.c a_gentm.c a_time.c a_int.c a_octet.c \
+         a_print.c a_type.c a_dup.c a_d2i_fp.c a_i2d_fp.c \
+         a_utf8.c a_sign.c a_digest.c a_verify.c a_mbstr.c a_strex.c \
+diff -uprN gmssl-origin/crypto/async/build.info gmssl-modify/crypto/async/build.info
+--- gmssl-origin/crypto/async/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/async/build.info	2020-10-30 17:00:30.314339892 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         async.c async_wait.c async_err.c arch/async_posix.c arch/async_win.c \
+         arch/async_null.c
+diff -uprN gmssl-origin/crypto/base58/build.info gmssl-modify/crypto/base58/build.info
+--- gmssl-origin/crypto/base58/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/base58/build.info	2020-10-27 14:47:45.674009400 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=base58.c base58_err.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=base58.c base58_err.c
+ 
+diff -uprN gmssl-origin/crypto/bb1ibe/build.info gmssl-modify/crypto/bb1ibe/build.info
+--- gmssl-origin/crypto/bb1ibe/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/bb1ibe/build.info	2020-10-27 14:48:02.900623400 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=bb1ibe_err.c bb1ibe_asn1.c bb1ibe_lib.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=bb1ibe_err.c bb1ibe_asn1.c bb1ibe_lib.c
+diff -uprN gmssl-origin/crypto/bf/build.info gmssl-modify/crypto/bf/build.info
+--- gmssl-origin/crypto/bf/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/bf/build.info	2020-10-27 14:48:25.136343200 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=bf_skey.c bf_ecb.c bf_cfb64.c bf_ofb64.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=bf_skey.c bf_ecb.c bf_cfb64.c bf_ofb64.c \
+         {- $target{bf_asm_src} -}
+ 
+ GENERATE[bf-586.s]=asm/bf-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS) $(PROCESSOR)
+diff -uprN gmssl-origin/crypto/bfibe/build.info gmssl-modify/crypto/bfibe/build.info
+--- gmssl-origin/crypto/bfibe/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/bfibe/build.info	2020-10-27 14:57:01.152285100 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=bfibe_err.c bfibe_asn1.c bfibe_lib.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=bfibe_err.c bfibe_asn1.c bfibe_lib.c
+diff -uprN gmssl-origin/crypto/bio/build.info gmssl-modify/crypto/bio/build.info
+--- gmssl-origin/crypto/bio/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/bio/build.info	2020-10-27 14:57:20.951493000 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         bio_lib.c bio_cb.c bio_err.c \
+         bss_mem.c bss_null.c bss_fd.c \
+         bss_file.c bss_sock.c bss_conn.c \
+diff -uprN gmssl-origin/crypto/blake2/build.info gmssl-modify/crypto/blake2/build.info
+--- gmssl-origin/crypto/blake2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/blake2/build.info	2020-10-27 14:57:37.049425200 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         blake2b.c blake2s.c m_blake2b.c m_blake2s.c
+diff -uprN gmssl-origin/crypto/bn/build.info gmssl-modify/crypto/bn/build.info
+--- gmssl-origin/crypto/bn/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/bn/build.info	2020-10-27 14:58:00.381992700 +0800
+@@ -1,12 +1,12 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         bn_add.c bn_div.c bn_exp.c bn_lib.c bn_ctx.c bn_mul.c bn_mod.c \
+         bn_print.c bn_rand.c bn_shift.c bn_word.c bn_blind.c \
+         bn_kron.c bn_sqrt.c bn_gcd.c bn_prime.c bn_err.c bn_sqr.c \
+         {- $target{bn_asm_src} -} bn_sm2p256.c \
+         bn_recp.c bn_mont.c bn_mpi.c bn_exp2.c bn_gf2m.c bn_nist.c \
+         bn_depr.c bn_const.c bn_x931p.c bn_intern.c bn_dh.c bn_srp.c
+-INCLUDE[../../libcrypto]=../../crypto/include
++INCLUDE[../../libgmcrypto]=../../crypto/include
+ 
+ INCLUDE[bn_exp.o]=..
+ 
+diff -uprN gmssl-origin/crypto/buffer/build.info gmssl-modify/crypto/buffer/build.info
+--- gmssl-origin/crypto/buffer/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/buffer/build.info	2020-10-27 14:58:42.327755100 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=buffer.c buf_err.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=buffer.c buf_err.c
+diff -uprN gmssl-origin/crypto/build.info gmssl-modify/crypto/build.info
+--- gmssl-origin/crypto/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/build.info	2020-10-30 11:37:49.506664900 +0800
+@@ -1,6 +1,6 @@
+ {- use File::Spec::Functions qw/catdir catfile/; -}
+-LIBS=../libcrypto
+-SOURCE[../libcrypto]=\
++LIBS=../libgmcrypto
++SOURCE[../libgmcrypto]=\
+         cryptlib.c mem.c mem_dbg.c cversion.c ex_data.c cpt_err.c \
+         ebcdic.c uid.c o_time.c o_str.c o_dir.c o_fopen.c \
+         threads_pthread.c threads_win.c threads_none.c \
+@@ -33,5 +33,5 @@ GENERATE[armv4cpuid.S]=armv4cpuid.pl $(P
+ INCLUDE[armv4cpuid.o]=.
+ 
+ IF[{- $config{target} =~ /^(?:Cygwin|mingw|VC-)/ -}]
+-  SHARED_SOURCE[../libcrypto]=dllmain.c
++  SHARED_SOURCE[../libgmcrypto]=dllmain.c
+ ENDIF
+diff -uprN gmssl-origin/crypto/camellia/build.info gmssl-modify/crypto/camellia/build.info
+--- gmssl-origin/crypto/camellia/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/camellia/build.info	2020-10-27 14:59:11.331229700 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         cmll_ecb.c cmll_ofb.c cmll_cfb.c cmll_ctr.c \
+         {- $target{cmll_asm_src} -}
+ 
+diff -uprN gmssl-origin/crypto/cast/build.info gmssl-modify/crypto/cast/build.info
+--- gmssl-origin/crypto/cast/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/cast/build.info	2020-10-27 14:59:29.972538200 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         c_skey.c c_ecb.c {- $target{cast_asm_src} -} c_cfb64.c c_ofb64.c
+ 
+ GENERATE[cast-586.s]=asm/cast-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS) $(PROCESSOR)
+diff -uprN gmssl-origin/crypto/chacha/build.info gmssl-modify/crypto/chacha/build.info
+--- gmssl-origin/crypto/chacha/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/chacha/build.info	2020-10-27 14:59:44.939782200 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]={- $target{chacha_asm_src} -}
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]={- $target{chacha_asm_src} -}
+ 
+ GENERATE[chacha-x86.s]=asm/chacha-x86.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS) $(PROCESSOR)
+ GENERATE[chacha-x86_64.s]=asm/chacha-x86_64.pl $(PERLASM_SCHEME)
+diff -uprN gmssl-origin/crypto/cmac/build.info gmssl-modify/crypto/cmac/build.info
+--- gmssl-origin/crypto/cmac/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/cmac/build.info	2020-10-27 15:00:00.522581900 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=cmac.c cm_ameth.c cm_pmeth.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=cmac.c cm_ameth.c cm_pmeth.c
+diff -uprN gmssl-origin/crypto/cms/build.info gmssl-modify/crypto/cms/build.info
+--- gmssl-origin/crypto/cms/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/cms/build.info	2020-10-27 15:00:15.116008100 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]= \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]= \
+         cms_lib.c cms_asn1.c cms_att.c cms_io.c cms_smime.c cms_err.c \
+         cms_sd.c cms_dd.c cms_cd.c cms_env.c cms_enc.c cms_ess.c \
+         cms_pwri.c cms_kari.c
+diff -uprN gmssl-origin/crypto/comp/build.info gmssl-modify/crypto/comp/build.info
+--- gmssl-origin/crypto/comp/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/comp/build.info	2020-10-27 15:00:29.244388400 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]= \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]= \
+         comp_lib.c comp_err.c \
+         c_zlib.c
+diff -uprN gmssl-origin/crypto/conf/build.info gmssl-modify/crypto/conf/build.info
+--- gmssl-origin/crypto/conf/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/conf/build.info	2020-10-27 15:02:15.033300600 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]= \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]= \
+         conf_err.c conf_lib.c conf_api.c conf_def.c conf_mod.c \
+         conf_mall.c conf_sap.c
+diff -uprN gmssl-origin/crypto/cpk/build.info gmssl-modify/crypto/cpk/build.info
+--- gmssl-origin/crypto/cpk/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/cpk/build.info	2020-10-27 15:02:28.362852800 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=cpk_asn1.c cpk_err.c cpk_lib.c cpk_map.c cpk_prn.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=cpk_asn1.c cpk_err.c cpk_lib.c cpk_map.c cpk_prn.c
+diff -uprN gmssl-origin/crypto/ct/build.info gmssl-modify/crypto/ct/build.info
+--- gmssl-origin/crypto/ct/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ct/build.info	2020-10-27 15:02:43.575792400 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]= ct_b64.c ct_err.c ct_log.c ct_oct.c ct_policy.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]= ct_b64.c ct_err.c ct_log.c ct_oct.c ct_policy.c \
+                          ct_prn.c ct_sct.c ct_sct_ctx.c ct_vfy.c ct_x509v3.c
+diff -uprN gmssl-origin/crypto/des/build.info gmssl-modify/crypto/des/build.info
+--- gmssl-origin/crypto/des/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/des/build.info	2020-10-27 15:02:57.823068000 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         set_key.c  ecb_enc.c  cbc_enc.c \
+         ecb3_enc.c cfb64enc.c cfb64ede.c cfb_enc.c \
+         ofb64ede.c ofb64enc.c ofb_enc.c \
+diff -uprN gmssl-origin/crypto/dh/build.info gmssl-modify/crypto/dh/build.info
+--- gmssl-origin/crypto/dh/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/dh/build.info	2020-10-27 15:03:15.473880600 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         dh_asn1.c dh_gen.c dh_key.c dh_lib.c dh_check.c dh_err.c dh_depr.c \
+         dh_ameth.c dh_pmeth.c dh_prn.c dh_rfc5114.c dh_kdf.c dh_meth.c
+diff -uprN gmssl-origin/crypto/dsa/build.info gmssl-modify/crypto/dsa/build.info
+--- gmssl-origin/crypto/dsa/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/dsa/build.info	2020-10-27 15:03:30.981314400 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         dsa_gen.c dsa_key.c dsa_lib.c dsa_asn1.c dsa_vrf.c dsa_sign.c \
+         dsa_err.c dsa_ossl.c dsa_depr.c dsa_ameth.c dsa_pmeth.c dsa_prn.c \
+         dsa_meth.c
+diff -uprN gmssl-origin/crypto/dso/build.info gmssl-modify/crypto/dso/build.info
+--- gmssl-origin/crypto/dso/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/dso/build.info	2020-10-27 15:03:44.614561600 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         dso_dl.c dso_dlfcn.c dso_err.c dso_lib.c \
+         dso_openssl.c dso_win32.c dso_vms.c
+diff -uprN gmssl-origin/crypto/ec/build.info gmssl-modify/crypto/ec/build.info
+--- gmssl-origin/crypto/ec/build.info	2020-10-30 15:23:38.000000000 +0800
++++ gmssl-modify/crypto/ec/build.info	2020-10-27 15:04:00.281225500 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         ec_lib.c ecp_smpl.c ecp_mont.c ecp_nist.c ec_cvt.c ec_mult.c \
+         ec_err.c ec_curve.c ec_check.c ec_print.c ec_asn1.c ec_key.c \
+         ec2_smpl.c ec2_mult.c ec_ameth.c ec_pmeth.c eck_prn.c ecp_sm2p256.c \
+diff -uprN gmssl-origin/crypto/ec2/build.info gmssl-modify/crypto/ec2/build.info
+--- gmssl-origin/crypto/ec2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ec2/build.info	2020-10-27 15:04:15.393910800 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=bn_gfp2.c bn_solinas.c bn_hash.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=bn_gfp2.c bn_solinas.c bn_hash.c \
+     fppoint.c ec_hash.c ec_type1.c
+diff -uprN gmssl-origin/crypto/ecies/build.info gmssl-modify/crypto/ecies/build.info
+--- gmssl-origin/crypto/ecies/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ecies/build.info	2020-10-27 15:04:29.593063800 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=ecies_asn1.c ecies_lib.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=ecies_asn1.c ecies_lib.c
+diff -uprN gmssl-origin/crypto/ecrs/build.info gmssl-modify/crypto/ecrs/build.info
+--- gmssl-origin/crypto/ecrs/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ecrs/build.info	2020-10-27 15:04:47.581003100 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=ecrs_err.c ecrs_asn1.c ecrs_lib.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=ecrs_err.c ecrs_asn1.c ecrs_lib.c
+diff -uprN gmssl-origin/crypto/engine/build.info gmssl-modify/crypto/engine/build.info
+--- gmssl-origin/crypto/engine/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/engine/build.info	2020-10-27 15:06:11.991898400 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         eng_err.c eng_lib.c eng_list.c eng_init.c eng_ctrl.c \
+         eng_table.c eng_pkey.c eng_fat.c eng_all.c \
+         tb_rsa.c tb_dsa.c tb_dh.c tb_rand.c \
+diff -uprN gmssl-origin/crypto/err/build.info gmssl-modify/crypto/err/build.info
+--- gmssl-origin/crypto/err/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/err/build.info	2020-10-27 15:06:41.413860200 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         err.c err_all.c err_prn.c
+diff -uprN gmssl-origin/crypto/evp/build.info gmssl-modify/crypto/evp/build.info
+--- gmssl-origin/crypto/evp/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/evp/build.info	2020-10-27 15:06:58.391233300 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         encode.c digest.c evp_enc.c evp_key.c evp_cnf.c \
+         e_des.c e_bf.c e_idea.c e_des3.c e_camellia.c\
+         e_rc4.c e_aes.c names.c e_seed.c \
+diff -uprN gmssl-origin/crypto/ffx/build.info gmssl-modify/crypto/ffx/build.info
+--- gmssl-origin/crypto/ffx/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ffx/build.info	2020-10-27 15:07:17.966930800 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=ffx.c ffx_err.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=ffx.c ffx_err.c
+diff -uprN gmssl-origin/crypto/gmapi/build.info gmssl-modify/crypto/gmapi/build.info
+--- gmssl-origin/crypto/gmapi/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/gmapi/build.info	2020-10-27 15:07:36.301562500 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=gmapi_err.c gmapi_sgd.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=gmapi_err.c gmapi_sgd.c \
+ 	gmapi_sdf_ec.c gmapi_sdf_rsa.c gmapi_skf_ec.c gmapi_skf_rsa.c
+diff -uprN gmssl-origin/crypto/hmac/build.info gmssl-modify/crypto/hmac/build.info
+--- gmssl-origin/crypto/hmac/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/hmac/build.info	2020-10-27 15:07:50.846137300 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         hmac.c hm_ameth.c hm_pmeth.c
+diff -uprN gmssl-origin/crypto/idea/build.info gmssl-modify/crypto/idea/build.info
+--- gmssl-origin/crypto/idea/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/idea/build.info	2020-10-27 15:08:05.647604000 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         i_cbc.c i_cfb64.c i_ofb64.c i_ecb.c i_skey.c
+diff -uprN gmssl-origin/crypto/kdf/build.info gmssl-modify/crypto/kdf/build.info
+--- gmssl-origin/crypto/kdf/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/kdf/build.info	2020-10-27 15:08:23.427630100 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         tls1_prf.c kdf_err.c hkdf.c
+diff -uprN gmssl-origin/crypto/kdf2/build.info gmssl-modify/crypto/kdf2/build.info
+--- gmssl-origin/crypto/kdf2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/kdf2/build.info	2020-10-27 15:08:41.048788800 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=kdf2_err.c kdf_x9_63.c kdf_ibcs.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=kdf2_err.c kdf_x9_63.c kdf_ibcs.c
+diff -uprN gmssl-origin/crypto/lhash/build.info gmssl-modify/crypto/lhash/build.info
+--- gmssl-origin/crypto/lhash/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/lhash/build.info	2020-10-27 15:08:57.854103000 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         lhash.c lh_stats.c
+diff -uprN gmssl-origin/crypto/md2/build.info gmssl-modify/crypto/md2/build.info
+--- gmssl-origin/crypto/md2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/md2/build.info	2020-10-27 15:09:12.086077000 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         md2_dgst.c md2_one.c
+diff -uprN gmssl-origin/crypto/md4/build.info gmssl-modify/crypto/md4/build.info
+--- gmssl-origin/crypto/md4/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/md4/build.info	2020-10-27 15:09:40.448168200 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         md4_dgst.c md4_one.c
+diff -uprN gmssl-origin/crypto/md5/build.info gmssl-modify/crypto/md5/build.info
+--- gmssl-origin/crypto/md5/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/md5/build.info	2020-10-27 15:09:56.245659800 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         md5_dgst.c md5_one.c {- $target{md5_asm_src} -}
+ 
+ GENERATE[md5-586.s]=asm/md5-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS)
+diff -uprN gmssl-origin/crypto/mdc2/build.info gmssl-modify/crypto/mdc2/build.info
+--- gmssl-origin/crypto/mdc2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/mdc2/build.info	2020-10-27 15:10:12.133916700 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         mdc2dgst.c mdc2_one.c
+diff -uprN gmssl-origin/crypto/modes/build.info gmssl-modify/crypto/modes/build.info
+--- gmssl-origin/crypto/modes/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/modes/build.info	2020-10-27 15:10:27.132292100 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         cbc128.c ctr128.c cts128.c cfb128.c ofb128.c gcm128.c \
+         ccm128.c xts128.c wrap128.c ocb128.c \
+         {- $target{modes_asm_src} -}
+diff -uprN gmssl-origin/crypto/objects/build.info gmssl-modify/crypto/objects/build.info
+--- gmssl-origin/crypto/objects/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/objects/build.info	2020-10-27 15:10:45.270124700 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         o_names.c obj_dat.c obj_lib.c obj_err.c obj_xref.c
+diff -uprN gmssl-origin/crypto/ocsp/build.info gmssl-modify/crypto/ocsp/build.info
+--- gmssl-origin/crypto/ocsp/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ocsp/build.info	2020-10-27 15:12:25.405514100 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         ocsp_asn.c ocsp_ext.c ocsp_ht.c ocsp_lib.c ocsp_cl.c \
+         ocsp_srv.c ocsp_prn.c ocsp_vfy.c ocsp_err.c v3_ocsp.c
+diff -uprN gmssl-origin/crypto/otp/build.info gmssl-modify/crypto/otp/build.info
+--- gmssl-origin/crypto/otp/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/otp/build.info	2020-10-27 15:12:39.887300700 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=otp_err.c otp_lib.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=otp_err.c otp_lib.c
+diff -uprN gmssl-origin/crypto/paillier/build.info gmssl-modify/crypto/paillier/build.info
+--- gmssl-origin/crypto/paillier/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/paillier/build.info	2020-10-27 15:12:53.446450700 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=pai_lib.c pai_err.c pai_asn1.c pai_ameth.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=pai_lib.c pai_err.c pai_asn1.c pai_ameth.c \
+ 	pai_pmeth.c
+diff -uprN gmssl-origin/crypto/pem/build.info gmssl-modify/crypto/pem/build.info
+--- gmssl-origin/crypto/pem/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/pem/build.info	2020-10-27 15:13:55.062876300 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         pem_sign.c pem_info.c pem_lib.c pem_all.c pem_err.c \
+         pem_x509.c pem_xaux.c pem_oth.c pem_pk8.c pem_pkey.c pvkfmt.c \
+ 	pem3.c
+diff -uprN gmssl-origin/crypto/pkcs12/build.info gmssl-modify/crypto/pkcs12/build.info
+--- gmssl-origin/crypto/pkcs12/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/pkcs12/build.info	2020-10-27 15:14:16.359439900 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         p12_add.c p12_asn.c p12_attr.c p12_crpt.c p12_crt.c p12_decr.c \
+         p12_init.c p12_key.c p12_kiss.c p12_mutl.c p12_sbag.c \
+         p12_utl.c p12_npas.c pk12err.c p12_p8d.c p12_p8e.c
+diff -uprN gmssl-origin/crypto/pkcs7/build.info gmssl-modify/crypto/pkcs7/build.info
+--- gmssl-origin/crypto/pkcs7/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/pkcs7/build.info	2020-10-27 15:14:35.632418500 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         pk7_asn1.c pk7_lib.c pkcs7err.c pk7_doit.c pk7_smime.c pk7_attr.c \
+         pk7_mime.c bio_pk7.c
+diff -uprN gmssl-origin/crypto/poly1305/build.info gmssl-modify/crypto/poly1305/build.info
+--- gmssl-origin/crypto/poly1305/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/poly1305/build.info	2020-10-27 15:14:53.448403200 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         poly1305.c {- $target{poly1305_asm_src} -}
+ 
+ GENERATE[poly1305-sparcv9.S]=asm/poly1305-sparcv9.pl $(PERLASM_SCHEME)
+diff -uprN gmssl-origin/crypto/rand/build.info gmssl-modify/crypto/rand/build.info
+--- gmssl-origin/crypto/rand/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/rand/build.info	2020-10-27 15:15:09.828268100 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         md_rand.c randfile.c rand_lib.c rand_err.c rand_egd.c \
+         rand_win.c rand_unix.c rand_vms.c
+diff -uprN gmssl-origin/crypto/rc2/build.info gmssl-modify/crypto/rc2/build.info
+--- gmssl-origin/crypto/rc2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/rc2/build.info	2020-10-27 15:15:26.714363500 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         rc2_ecb.c rc2_skey.c rc2_cbc.c rc2cfb64.c rc2ofb64.c
+diff -uprN gmssl-origin/crypto/rc4/build.info gmssl-modify/crypto/rc4/build.info
+--- gmssl-origin/crypto/rc4/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/rc4/build.info	2020-10-27 15:15:44.928601400 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         {- $target{rc4_asm_src} -}
+ 
+ GENERATE[rc4-586.s]=asm/rc4-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS) $(PROCESSOR)
+diff -uprN gmssl-origin/crypto/rc5/build.info gmssl-modify/crypto/rc5/build.info
+--- gmssl-origin/crypto/rc5/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/rc5/build.info	2020-10-27 15:16:00.125286100 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         rc5_skey.c rc5_ecb.c {- $target{rc5_asm_src} -} rc5cfb64.c rc5ofb64.c
+ 
+ GENERATE[rc5-586.s]=asm/rc5-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS)
+diff -uprN gmssl-origin/crypto/ripemd/build.info gmssl-modify/crypto/ripemd/build.info
+--- gmssl-origin/crypto/ripemd/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ripemd/build.info	2020-10-27 15:16:15.086986600 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         rmd_dgst.c rmd_one.c {- $target{rmd160_asm_src} -}
+ 
+ GENERATE[rmd-586.s]=asm/rmd-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS)
+diff -uprN gmssl-origin/crypto/rsa/build.info gmssl-modify/crypto/rsa/build.info
+--- gmssl-origin/crypto/rsa/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/rsa/build.info	2020-10-27 15:16:29.277882000 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         rsa_ossl.c rsa_gen.c rsa_lib.c rsa_sign.c rsa_saos.c rsa_err.c \
+         rsa_pk1.c rsa_ssl.c rsa_none.c rsa_oaep.c rsa_chk.c rsa_null.c \
+         rsa_pss.c rsa_x931.c rsa_asn1.c rsa_depr.c rsa_ameth.c rsa_prn.c \
+diff -uprN gmssl-origin/crypto/saf/build.info gmssl-modify/crypto/saf/build.info
+--- gmssl-origin/crypto/saf/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/saf/build.info	2020-10-27 15:16:43.777183800 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]= \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]= \
+ 	saf_app.c \
+ 	saf_base64.c \
+ 	saf_cert.c \
+diff -uprN gmssl-origin/crypto/sdf/build.info gmssl-modify/crypto/sdf/build.info
+--- gmssl-origin/crypto/sdf/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sdf/build.info	2020-10-27 15:16:58.446120000 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=sdf_err.c sdf_lib.c sdf_ext.c sdf_meth.c sdf_sansec.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=sdf_err.c sdf_lib.c sdf_ext.c sdf_meth.c sdf_sansec.c
+diff -uprN gmssl-origin/crypto/seed/build.info gmssl-modify/crypto/seed/build.info
+--- gmssl-origin/crypto/seed/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/seed/build.info	2020-10-27 15:17:11.674810400 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=seed.c seed_ecb.c seed_cbc.c seed_cfb.c seed_ofb.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=seed.c seed_ecb.c seed_cbc.c seed_cfb.c seed_ofb.c
+diff -uprN gmssl-origin/crypto/serpent/build.info gmssl-modify/crypto/serpent/build.info
+--- gmssl-origin/crypto/serpent/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/serpent/build.info	2020-10-27 15:17:24.697454400 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=serpent.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=serpent.c
+diff -uprN gmssl-origin/crypto/sha/build.info gmssl-modify/crypto/sha/build.info
+--- gmssl-origin/crypto/sha/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sha/build.info	2020-10-27 15:17:40.359259700 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         sha1dgst.c sha1_one.c sha256.c sha512.c {- $target{sha1_asm_src} -}
+ 
+ GENERATE[sha1-586.s]=asm/sha1-586.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS) $(PROCESSOR)
+diff -uprN gmssl-origin/crypto/skf/build.info gmssl-modify/crypto/skf/build.info
+--- gmssl-origin/crypto/skf/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/skf/build.info	2020-10-27 15:17:58.857248600 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=skf_err.c skf_lib.c skf_meth.c skf_ext.c skf_prn.c skf_wisec.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=skf_err.c skf_lib.c skf_meth.c skf_ext.c skf_prn.c skf_wisec.c
+diff -uprN gmssl-origin/crypto/sm2/build.info gmssl-modify/crypto/sm2/build.info
+--- gmssl-origin/crypto/sm2/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sm2/build.info	2020-10-27 15:18:13.452595600 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=sm2_err.c sm2_asn1.c sm2_id.c sm2_sign.c sm2_enc.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=sm2_err.c sm2_asn1.c sm2_id.c sm2_sign.c sm2_enc.c \
+ 			sm2_oct.c sm2_exch.c sm2_kmeth.c sm2_cosign.c
+diff -uprN gmssl-origin/crypto/sm3/build.info gmssl-modify/crypto/sm3/build.info
+--- gmssl-origin/crypto/sm3/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sm3/build.info	2020-10-27 15:18:27.357934700 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=sm3.c sm3_hmac.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=sm3.c sm3_hmac.c
+diff -uprN gmssl-origin/crypto/sm9/build.info gmssl-modify/crypto/sm9/build.info
+--- gmssl-origin/crypto/sm9/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sm9/build.info	2020-10-27 15:18:44.635672900 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=sm9_lib.c sm9_err.c sm9_asn1.c sm9_params.c \
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=sm9_lib.c sm9_err.c sm9_asn1.c sm9_params.c \
+ 	sm9_setup.c sm9_keygen.c sm9_sign.c sm9_enc.c sm9_exch.c sm9_rate.c \
+ 	sm9_pmeth.c sm9_ameth.c
+diff -uprN gmssl-origin/crypto/sms4/build.info gmssl-modify/crypto/sms4/build.info
+--- gmssl-origin/crypto/sms4/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sms4/build.info	2020-10-27 15:18:59.415741700 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+ 	sms4_common.c sms4_setkey.c sms4_enc.c sms4_enc_nblks.c \
+ 	sms4_ecb.c sms4_cbc.c sms4_cfb.c sms4_ctr.c sms4_ofb.c sms4_wrap.c
+diff -uprN gmssl-origin/crypto/sof/build.info gmssl-modify/crypto/sof/build.info
+--- gmssl-origin/crypto/sof/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/sof/build.info	2020-10-27 15:19:13.529761300 +0800
+@@ -1,4 +1,4 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+ 	sof_err.c \
+ 	sof_lib.c
+diff -uprN gmssl-origin/crypto/speck/build.info gmssl-modify/crypto/speck/build.info
+--- gmssl-origin/crypto/speck/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/speck/build.info	2020-10-27 15:19:27.427078100 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=speck.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=speck.c
+diff -uprN gmssl-origin/crypto/srp/build.info gmssl-modify/crypto/srp/build.info
+--- gmssl-origin/crypto/srp/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/srp/build.info	2020-10-27 15:19:56.625251600 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=srp_lib.c srp_vfy.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=srp_lib.c srp_vfy.c
+diff -uprN gmssl-origin/crypto/stack/build.info gmssl-modify/crypto/stack/build.info
+--- gmssl-origin/crypto/stack/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/stack/build.info	2020-10-27 15:20:10.459654900 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=stack.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=stack.c
+diff -uprN gmssl-origin/crypto/ts/build.info gmssl-modify/crypto/ts/build.info
+--- gmssl-origin/crypto/ts/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ts/build.info	2020-10-27 15:20:25.694308200 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         ts_err.c ts_req_utils.c ts_req_print.c ts_rsp_utils.c ts_rsp_print.c \
+         ts_rsp_sign.c ts_rsp_verify.c ts_verify_ctx.c ts_lib.c ts_conf.c \
+         ts_asn1.c
+diff -uprN gmssl-origin/crypto/txt_db/build.info gmssl-modify/crypto/txt_db/build.info
+--- gmssl-origin/crypto/txt_db/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/txt_db/build.info	2020-10-27 15:20:40.585175400 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=txt_db.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=txt_db.c
+diff -uprN gmssl-origin/crypto/ui/build.info gmssl-modify/crypto/ui/build.info
+--- gmssl-origin/crypto/ui/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/ui/build.info	2020-10-27 15:21:01.440534600 +0800
+@@ -1,3 +1,3 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         ui_err.c ui_lib.c ui_openssl.c ui_util.c
+diff -uprN gmssl-origin/crypto/whrlpool/build.info gmssl-modify/crypto/whrlpool/build.info
+--- gmssl-origin/crypto/whrlpool/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/whrlpool/build.info	2020-10-27 15:21:36.294774300 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=wp_dgst.c {- $target{wp_asm_src} -}
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=wp_dgst.c {- $target{wp_asm_src} -}
+ 
+ GENERATE[wp-mmx.s]=asm/wp-mmx.pl $(PERLASM_SCHEME) $(CFLAGS) $(LIB_CFLAGS) $(PROCESSOR)
+ DEPEND[wp-mmx.s]=../perlasm/x86asm.pl
+diff -uprN gmssl-origin/crypto/x509/build.info gmssl-modify/crypto/x509/build.info
+--- gmssl-origin/crypto/x509/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/x509/build.info	2020-10-27 15:21:51.542994700 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+         x509_def.c x509_d2.c x509_r2x.c x509_cmp.c \
+         x509_obj.c x509_req.c x509spki.c x509_vfy.c \
+         x509_set.c x509cset.c x509rset.c x509_err.c \
+diff -uprN gmssl-origin/crypto/x509v3/build.info gmssl-modify/crypto/x509v3/build.info
+--- gmssl-origin/crypto/x509v3/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/x509v3/build.info	2020-10-27 15:22:05.287540900 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=\
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=\
+   v3_bcons.c v3_bitst.c v3_conf.c v3_extku.c v3_ia5.c v3_lib.c \
+   v3_prn.c v3_utl.c v3err.c v3_genn.c v3_alt.c v3_skey.c v3_akey.c v3_pku.c \
+   v3_int.c v3_enum.c v3_sxnet.c v3_cpols.c v3_crld.c v3_purp.c v3_info.c \
+diff -uprN gmssl-origin/crypto/zuc/build.info gmssl-modify/crypto/zuc/build.info
+--- gmssl-origin/crypto/zuc/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/crypto/zuc/build.info	2020-10-27 15:22:19.125249500 +0800
+@@ -1,2 +1,2 @@
+-LIBS=../../libcrypto
+-SOURCE[../../libcrypto]=zuc_core.c zuc_128eea3.c zuc_128eia3.c zuc_spec.c
++LIBS=../../libgmcrypto
++SOURCE[../../libgmcrypto]=zuc_core.c zuc_128eea3.c zuc_128eia3.c zuc_spec.c
+diff -uprN gmssl-origin/engines/afalg/build.info gmssl-modify/engines/afalg/build.info
+--- gmssl-origin/engines/afalg/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/engines/afalg/build.info	2020-10-27 11:32:40.196962900 +0800
+@@ -1,12 +1,12 @@
+ IF[{- !$disabled{"engine"} -}]
+   IF[{- !$disabled{afalg} -}]
+     IF[{- $disabled{"dynamic-engine"} -}]
+-      LIBS=../../libcrypto
+-      SOURCE[../../libcrypto]=e_afalg.c e_afalg_err.c
++      LIBS=../../libgmcrypto
++      SOURCE[../../libgmcrypto]=e_afalg.c e_afalg_err.c
+     ELSE
+       ENGINES=afalg
+       SOURCE[afalg]=e_afalg.c e_afalg_err.c
+-      DEPEND[afalg]=../../libcrypto
++      DEPEND[afalg]=../../libgmcrypto
+       INCLUDE[afalg]= ../../include
+     ENDIF
+   ENDIF
+diff -uprN gmssl-origin/engines/build.info gmssl-modify/engines/build.info
+--- gmssl-origin/engines/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/engines/build.info	2020-10-27 11:32:01.361346900 +0800
+@@ -1,67 +1,67 @@
+ IF[{- !$disabled{"engine"} -}]
+   IF[{- $disabled{"dynamic-engine"} -}]
+-    LIBS=../libcrypto
+-    SOURCE[../libcrypto]=\
++    LIBS=../libgmcrypto
++    SOURCE[../libgmcrypto]=\
+             e_padlock.c {- $target{padlock_asm_src} -}
+     IF[{- !$disabled{capieng} -}]
+-      SOURCE[../libcrypto]=e_capi.c
++      SOURCE[../libgmcrypto]=e_capi.c
+     ENDIF
+     IF[{- !$disabled{skfeng} -}]
+-      SOURCE[../libcrypto]=e_skf.c
++      SOURCE[../libgmcrypto]=e_skf.c
+     ENDIF
+     IF[{- !$disabled{sdfeng} -}]
+-      SOURCE[../libcrypto]=e_sdf.c
++      SOURCE[../libgmcrypto]=e_sdf.c
+     ENDIF
+     IF[{- !$disabled{gmieng} -}]
+-      SOURCE[../libcrypto]=e_gmi.c {- $target{gmi_asm_src} -}
++      SOURCE[../libgmcrypto]=e_gmi.c {- $target{gmi_asm_src} -}
+     ENDIF
+   ELSE
+     ENGINES=padlock
+     SOURCE[padlock]=e_padlock.c {- $target{padlock_asm_src} -}
+-    DEPEND[padlock]=../libcrypto
++    DEPEND[padlock]=../libgmcrypto
+     INCLUDE[padlock]=../include
+     IF[{- !$disabled{capieng} -}]
+       ENGINES=capi
+       SOURCE[capi]=e_capi.c
+-      DEPEND[capi]=../libcrypto
++      DEPEND[capi]=../libgmcrypto
+       INCLUDE[capi]=../include
+     ENDIF
+     IF[{- !$disabled{skfeng} -}]
+       ENGINES=skf
+       SOURCE[skf]=e_skf.c
+-      DEPEND[skf]=../libcrypto
++      DEPEND[skf]=../libgmcrypto
+       INCLUDE[skf]=../include
+     ENDIF
+     IF[{- !$disabled{sdfeng} -}]
+       ENGINES=sdf
+       SOURCE[sdf]=e_sdf.c
+-      DEPEND[sdf]=../libcrypto
++      DEPEND[sdf]=../libgmcrypto
+       INCLUDE[sdf]=../include
+     ENDIF
+     IF[{- !$disabled{gmieng} -}]
+       ENGINES=gmi
+       SOURCE[gmi]=e_gmi.c {- $target{gmi_asm_src} -}
+-      DEPEND[gmi]=../libcrypto
++      DEPEND[gmi]=../libgmcrypto
+       INCLUDE[gmi]=../include
+     ENDIF
+ 
+     ENGINES_NO_INST=ossltest
+     SOURCE[dasync]=e_dasync.c
+-    DEPEND[dasync]=../libcrypto
++    DEPEND[dasync]=../libgmcrypto
+     INCLUDE[dasync]=../include
+     SOURCE[ossltest]=e_ossltest.c
+-    DEPEND[ossltest]=../libcrypto
++    DEPEND[ossltest]=../libgmcrypto
+     INCLUDE[ossltest]=../include
+     IF[{- !$disabled{skfeng} -}]
+       ENGINES_NO_INST=skf_dummy
+       SOURCE[skf_dummy]=skf_dummy.c
+-      DEPEND[skf_dummy]=../libcrypto
++      DEPEND[skf_dummy]=../libgmcrypto
+       INCLUDE[skf_dummy]=../include
+     ENDIF
+     IF[{- !$disabled{skfeng} -}]
+       ENGINES_NO_INST=sdf_dummy
+       SOURCE[sdf_dummy]=sdf_dummy.c
+-      DEPEND[sdf_dummy]=../libcrypto
++      DEPEND[sdf_dummy]=../libgmcrypto
+       INCLUDE[sdf_dummy]=../include
+     ENDIF
+   ENDIF
+diff -uprN gmssl-origin/fuzz/build.info gmssl-modify/fuzz/build.info
+--- gmssl-origin/fuzz/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/fuzz/build.info	2020-10-27 11:30:24.087129700 +0800
+@@ -21,43 +21,43 @@ IF[{- !$disabled{"fuzz-afl"} || !$disabl
+ 
+   SOURCE[asn1]=asn1.c driver.c
+   INCLUDE[asn1]=../include {- $ex_inc -}
+-  DEPEND[asn1]=../libcrypto {- $ex_lib -}
++  DEPEND[asn1]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[asn1parse]=asn1parse.c driver.c
+   INCLUDE[asn1parse]=../include {- $ex_inc -}
+-  DEPEND[asn1parse]=../libcrypto {- $ex_lib -}
++  DEPEND[asn1parse]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[bignum]=bignum.c driver.c
+   INCLUDE[bignum]=../include {- $ex_inc -}
+-  DEPEND[bignum]=../libcrypto {- $ex_lib -}
++  DEPEND[bignum]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[bndiv]=bndiv.c driver.c
+   INCLUDE[bndiv]=../include {- $ex_inc -}
+-  DEPEND[bndiv]=../libcrypto {- $ex_lib -}
++  DEPEND[bndiv]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[cms]=cms.c driver.c
+   INCLUDE[cms]=../include {- $ex_inc -}
+-  DEPEND[cms]=../libcrypto {- $ex_lib -}
++  DEPEND[cms]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[conf]=conf.c driver.c
+   INCLUDE[conf]=../include {- $ex_inc -}
+-  DEPEND[conf]=../libcrypto {- $ex_lib -}
++  DEPEND[conf]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[crl]=crl.c driver.c
+   INCLUDE[crl]=../include {- $ex_inc -}
+-  DEPEND[crl]=../libcrypto {- $ex_lib -}
++  DEPEND[crl]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[ct]=ct.c driver.c
+   INCLUDE[ct]=../include {- $ex_inc -}
+-  DEPEND[ct]=../libcrypto {- $ex_lib -}
++  DEPEND[ct]=../libgmcrypto {- $ex_lib -}
+ 
+   SOURCE[server]=server.c driver.c
+   INCLUDE[server]=../include {- $ex_inc -}
+-  DEPEND[server]=../libcrypto ../libssl {- $ex_lib -}
++  DEPEND[server]=../libgmcrypto ../libgmssl {- $ex_lib -}
+ 
+   SOURCE[x509]=x509.c driver.c
+   INCLUDE[x509]=../include {- $ex_inc -}
+-  DEPEND[x509]=../libcrypto {- $ex_lib -}
++  DEPEND[x509]=../libgmcrypto {- $ex_lib -}
+ ENDIF
+ 
+ IF[{- !$disabled{tests} -}]
+@@ -77,41 +77,41 @@ IF[{- !$disabled{tests} -}]
+ 
+   SOURCE[asn1-test]=asn1.c test-corpus.c
+   INCLUDE[asn1-test]=../include
+-  DEPEND[asn1-test]=../libcrypto
++  DEPEND[asn1-test]=../libgmcrypto
+ 
+   SOURCE[asn1parse-test]=asn1parse.c test-corpus.c
+   INCLUDE[asn1parse-test]=../include
+-  DEPEND[asn1parse-test]=../libcrypto
++  DEPEND[asn1parse-test]=../libgmcrypto
+ 
+   SOURCE[bignum-test]=bignum.c test-corpus.c
+   INCLUDE[bignum-test]=../include
+-  DEPEND[bignum-test]=../libcrypto
++  DEPEND[bignum-test]=../libgmcrypto
+ 
+   SOURCE[bndiv-test]=bndiv.c test-corpus.c
+   INCLUDE[bndiv-test]=../include
+-  DEPEND[bndiv-test]=../libcrypto
++  DEPEND[bndiv-test]=../libgmcrypto
+ 
+   SOURCE[cms-test]=cms.c test-corpus.c
+   INCLUDE[cms-test]=../include
+-  DEPEND[cms-test]=../libcrypto
++  DEPEND[cms-test]=../libgmcrypto
+ 
+   SOURCE[conf-test]=conf.c test-corpus.c
+   INCLUDE[conf-test]=../include
+-  DEPEND[conf-test]=../libcrypto
++  DEPEND[conf-test]=../libgmcrypto
+ 
+   SOURCE[crl-test]=crl.c test-corpus.c
+   INCLUDE[crl-test]=../include
+-  DEPEND[crl-test]=../libcrypto
++  DEPEND[crl-test]=../libgmcrypto
+ 
+   SOURCE[ct-test]=ct.c test-corpus.c
+   INCLUDE[ct-test]=../include
+-  DEPEND[ct-test]=../libcrypto
++  DEPEND[ct-test]=../libgmcrypto
+ 
+   SOURCE[server-test]=server.c test-corpus.c
+   INCLUDE[server-test]=../include
+-  DEPEND[server-test]=../libcrypto ../libssl
++  DEPEND[server-test]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[x509-test]=x509.c test-corpus.c
+   INCLUDE[x509-test]=../include
+-  DEPEND[x509-test]=../libcrypto
++  DEPEND[x509-test]=../libgmcrypto
+ ENDIF
+diff -uprN gmssl-origin/java/build.info gmssl-modify/java/build.info
+--- gmssl-origin/java/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/java/build.info	2020-10-27 11:25:42.888999500 +0800
+@@ -1,4 +1,4 @@
+ LIBS=../libgmssljni
+ SOURCE[../libgmssljni]=GmSSL.c
+-DEPEND[../libgmssljni]=../libcrypto
++DEPEND[../libgmssljni]=../libgmcrypto
+ INCLUDE[../libgmssljni]=../include ./jni
+diff -uprN gmssl-origin/ssl/build.info gmssl-modify/ssl/build.info
+--- gmssl-origin/ssl/build.info	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/ssl/build.info	2020-10-27 11:31:01.608499900 +0800
+@@ -1,5 +1,5 @@
+-LIBS=../libssl
+-SOURCE[../libssl]=\
++LIBS=../libgmssl
++SOURCE[../libgmssl]=\
+         pqueue.c \
+         statem/statem_srvr.c statem/statem_clnt.c  s3_lib.c  s3_enc.c record/rec_layer_s3.c \
+         statem/statem_lib.c s3_cbc.c s3_msg.c \
+@@ -13,5 +13,5 @@ SOURCE[../libssl]=\
+         record/ssl3_buffer.c record/ssl3_record.c record/dtls1_bitmap.c \
+         statem/statem.c
+ IF[{- !$disabled{gmtls} -}]
+-	SOURCE[../libssl]=statem/statem_gmtls.c
++	SOURCE[../libgmssl]=statem/statem_gmtls.c
+ ENDIF
+diff -uprN gmssl-origin/test/build.info gmssl-modify/test/build.info
+--- gmssl-origin/test/build.info	2020-10-30 15:23:38.000000000 +0800
++++ gmssl-modify/test/build.info	2020-10-27 11:24:40.152506000 +0800
+@@ -25,235 +25,235 @@ IF[{- !$disabled{tests} -}]
+ 
+   SOURCE[aborttest]=aborttest.c
+   INCLUDE[aborttest]=../include
+-  DEPEND[aborttest]=../libcrypto
++  DEPEND[aborttest]=../libgmcrypto
+ 
+   SOURCE[sanitytest]=sanitytest.c
+   INCLUDE[sanitytest]=../include
+-  DEPEND[sanitytest]=../libcrypto
++  DEPEND[sanitytest]=../libgmcrypto
+ 
+   SOURCE[bntest]=bntest.c
+   INCLUDE[bntest]=.. ../crypto/include ../include
+-  DEPEND[bntest]=../libcrypto
++  DEPEND[bntest]=../libgmcrypto
+ 
+   SOURCE[ectest]=ectest.c
+   INCLUDE[ectest]=../include
+-  DEPEND[ectest]=../libcrypto
++  DEPEND[ectest]=../libgmcrypto
+ 
+   SOURCE[ecdsatest]=ecdsatest.c
+   INCLUDE[ecdsatest]=../include
+-  DEPEND[ecdsatest]=../libcrypto
++  DEPEND[ecdsatest]=../libgmcrypto
+ 
+   SOURCE[ecdhtest]=ecdhtest.c
+   INCLUDE[ecdhtest]=../include
+-  DEPEND[ecdhtest]=../libcrypto
++  DEPEND[ecdhtest]=../libgmcrypto
+ 
+   SOURCE[gmdifftest]=gmdifftest.c
+   INCLUDE[gmdifftest]=../include
+-  DEPEND[gmdifftest]=../libcrypto
++  DEPEND[gmdifftest]=../libgmcrypto
+ 
+   SOURCE[pbelutest]=pbelutest.c
+   INCLUDE[pbelutest]=../include
+-  DEPEND[pbelutest]=../libcrypto
++  DEPEND[pbelutest]=../libgmcrypto
+ 
+   SOURCE[ideatest]=ideatest.c
+   INCLUDE[ideatest]=../include
+-  DEPEND[ideatest]=../libcrypto
++  DEPEND[ideatest]=../libgmcrypto
+ 
+   SOURCE[md2test]=md2test.c
+   INCLUDE[md2test]=../include
+-  DEPEND[md2test]=../libcrypto
++  DEPEND[md2test]=../libgmcrypto
+ 
+   SOURCE[md4test]=md4test.c
+   INCLUDE[md4test]=../include
+-  DEPEND[md4test]=../libcrypto
++  DEPEND[md4test]=../libgmcrypto
+ 
+   SOURCE[md5test]=md5test.c
+   INCLUDE[md5test]=../include
+-  DEPEND[md5test]=../libcrypto
++  DEPEND[md5test]=../libgmcrypto
+ 
+   SOURCE[hmactest]=hmactest.c
+   INCLUDE[hmactest]=../include
+-  DEPEND[hmactest]=../libcrypto
++  DEPEND[hmactest]=../libgmcrypto
+ 
+   SOURCE[wp_test]=wp_test.c
+   INCLUDE[wp_test]=../include
+-  DEPEND[wp_test]=../libcrypto
++  DEPEND[wp_test]=../libgmcrypto
+ 
+   SOURCE[rc2test]=rc2test.c
+   INCLUDE[rc2test]=../include
+-  DEPEND[rc2test]=../libcrypto
++  DEPEND[rc2test]=../libgmcrypto
+ 
+   SOURCE[rc4test]=rc4test.c
+   INCLUDE[rc4test]=../include
+-  DEPEND[rc4test]=../libcrypto
++  DEPEND[rc4test]=../libgmcrypto
+ 
+   SOURCE[rc5test]=rc5test.c
+   INCLUDE[rc5test]=../include
+-  DEPEND[rc5test]=../libcrypto
++  DEPEND[rc5test]=../libgmcrypto
+ 
+   SOURCE[destest]=destest.c
+   INCLUDE[destest]=../include
+-  DEPEND[destest]=../libcrypto
++  DEPEND[destest]=../libgmcrypto
+ 
+   SOURCE[sha1test]=sha1test.c
+   INCLUDE[sha1test]=../include
+-  DEPEND[sha1test]=../libcrypto
++  DEPEND[sha1test]=../libgmcrypto
+ 
+   SOURCE[sha256t]=sha256t.c
+   INCLUDE[sha256t]=../include
+-  DEPEND[sha256t]=../libcrypto
++  DEPEND[sha256t]=../libgmcrypto
+ 
+   SOURCE[sha512t]=sha512t.c
+   INCLUDE[sha512t]=../include
+-  DEPEND[sha512t]=../libcrypto
++  DEPEND[sha512t]=../libgmcrypto
+ 
+   SOURCE[mdc2test]=mdc2test.c
+   INCLUDE[mdc2test]=../include
+-  DEPEND[mdc2test]=../libcrypto
++  DEPEND[mdc2test]=../libgmcrypto
+ 
+   SOURCE[rmdtest]=rmdtest.c
+   INCLUDE[rmdtest]=../include
+-  DEPEND[rmdtest]=../libcrypto
++  DEPEND[rmdtest]=../libgmcrypto
+ 
+   SOURCE[randtest]=randtest.c
+   INCLUDE[randtest]=../include
+-  DEPEND[randtest]=../libcrypto
++  DEPEND[randtest]=../libgmcrypto
+ 
+   SOURCE[dhtest]=dhtest.c
+   INCLUDE[dhtest]=../include
+-  DEPEND[dhtest]=../libcrypto
++  DEPEND[dhtest]=../libgmcrypto
+ 
+   SOURCE[enginetest]=enginetest.c
+   INCLUDE[enginetest]=../include
+-  DEPEND[enginetest]=../libcrypto
++  DEPEND[enginetest]=../libgmcrypto
+ 
+   SOURCE[casttest]=casttest.c
+   INCLUDE[casttest]=../include
+-  DEPEND[casttest]=../libcrypto
++  DEPEND[casttest]=../libgmcrypto
+ 
+   SOURCE[bftest]=bftest.c
+   INCLUDE[bftest]=../include
+-  DEPEND[bftest]=../libcrypto
++  DEPEND[bftest]=../libgmcrypto
+ 
+   SOURCE[ssltest_old]=ssltest_old.c
+   INCLUDE[ssltest_old]=.. ../include
+-  DEPEND[ssltest_old]=../libcrypto ../libssl
++  DEPEND[ssltest_old]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[dsatest]=dsatest.c
+   INCLUDE[dsatest]=../include
+-  DEPEND[dsatest]=../libcrypto
++  DEPEND[dsatest]=../libgmcrypto
+ 
+   SOURCE[exptest]=exptest.c
+   INCLUDE[exptest]=../include
+-  DEPEND[exptest]=../libcrypto
++  DEPEND[exptest]=../libgmcrypto
+ 
+   SOURCE[rsa_test]=rsa_test.c
+   INCLUDE[rsa_test]=.. ../include
+-  DEPEND[rsa_test]=../libcrypto
++  DEPEND[rsa_test]=../libgmcrypto
+ 
+   SOURCE[evp_test]=evp_test.c
+   INCLUDE[evp_test]=../include
+-  DEPEND[evp_test]=../libcrypto
++  DEPEND[evp_test]=../libgmcrypto
+ 
+   SOURCE[evp_extra_test]=evp_extra_test.c
+   INCLUDE[evp_extra_test]=../include
+-  DEPEND[evp_extra_test]=../libcrypto
++  DEPEND[evp_extra_test]=../libgmcrypto
+ 
+   SOURCE[igetest]=igetest.c
+   INCLUDE[igetest]=.. ../include
+-  DEPEND[igetest]=../libcrypto
++  DEPEND[igetest]=../libgmcrypto
+ 
+   SOURCE[v3nametest]=v3nametest.c
+   INCLUDE[v3nametest]=../include
+-  DEPEND[v3nametest]=../libcrypto
++  DEPEND[v3nametest]=../libgmcrypto
+ 
+   SOURCE[crltest]=crltest.c testutil.c
+   INCLUDE[crltest]=../include
+-  DEPEND[crltest]=../libcrypto
++  DEPEND[crltest]=../libgmcrypto
+ 
+   SOURCE[v3ext]=v3ext.c
+   INCLUDE[v3ext]=../include
+-  DEPEND[v3ext]=../libcrypto
++  DEPEND[v3ext]=../libgmcrypto
+ 
+   SOURCE[danetest]=danetest.c
+   INCLUDE[danetest]=../include
+-  DEPEND[danetest]=../libcrypto ../libssl
++  DEPEND[danetest]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[heartbeat_test]=heartbeat_test.c testutil.c
+   INCLUDE[heartbeat_test]=.. ../include
+-  DEPEND[heartbeat_test]=../libcrypto ../libssl
++  DEPEND[heartbeat_test]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[p5_crpt2_test]=p5_crpt2_test.c
+   INCLUDE[p5_crpt2_test]=../include
+-  DEPEND[p5_crpt2_test]=../libcrypto
++  DEPEND[p5_crpt2_test]=../libgmcrypto
+ 
+   SOURCE[constant_time_test]=constant_time_test.c
+   INCLUDE[constant_time_test]=.. ../include
+-  DEPEND[constant_time_test]=../libcrypto
++  DEPEND[constant_time_test]=../libgmcrypto
+ 
+   SOURCE[verify_extra_test]=verify_extra_test.c
+   INCLUDE[verify_extra_test]=../include
+-  DEPEND[verify_extra_test]=../libcrypto
++  DEPEND[verify_extra_test]=../libgmcrypto
+ 
+   SOURCE[clienthellotest]=clienthellotest.c
+   INCLUDE[clienthellotest]=../include
+-  DEPEND[clienthellotest]=../libcrypto ../libssl
++  DEPEND[clienthellotest]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[bad_dtls_test]=bad_dtls_test.c
+   INCLUDE[bad_dtls_test]=../include
+-  DEPEND[bad_dtls_test]=../libcrypto ../libssl
++  DEPEND[bad_dtls_test]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[packettest]=packettest.c
+   INCLUDE[packettest]=../include
+-  DEPEND[packettest]=../libcrypto
++  DEPEND[packettest]=../libgmcrypto
+ 
+   SOURCE[asynctest]=asynctest.c
+   INCLUDE[asynctest]=.. ../include
+-  DEPEND[asynctest]=../libcrypto
++  DEPEND[asynctest]=../libgmcrypto
+ 
+   SOURCE[secmemtest]=secmemtest.c
+   INCLUDE[secmemtest]=../include
+-  DEPEND[secmemtest]=../libcrypto
++  DEPEND[secmemtest]=../libgmcrypto
+ 
+   SOURCE[srptest]=srptest.c
+   INCLUDE[srptest]=../include
+-  DEPEND[srptest]=../libcrypto
++  DEPEND[srptest]=../libgmcrypto
+ 
+   SOURCE[memleaktest]=memleaktest.c
+   INCLUDE[memleaktest]=../include
+-  DEPEND[memleaktest]=../libcrypto
++  DEPEND[memleaktest]=../libgmcrypto
+ 
+   SOURCE[dtlsv1listentest]=dtlsv1listentest.c
+   INCLUDE[dtlsv1listentest]=.. ../include
+-  DEPEND[dtlsv1listentest]=../libssl
++  DEPEND[dtlsv1listentest]=../libgmssl
+ 
+   SOURCE[ct_test]=ct_test.c testutil.c
+   INCLUDE[ct_test]=../crypto/include ../include
+-  DEPEND[ct_test]=../libcrypto
++  DEPEND[ct_test]=../libgmcrypto
+ 
+   SOURCE[threadstest]=threadstest.c
+   INCLUDE[threadstest]=.. ../include
+-  DEPEND[threadstest]=../libcrypto
++  DEPEND[threadstest]=../libgmcrypto
+ 
+   SOURCE[afalgtest]=afalgtest.c
+   INCLUDE[afalgtest]=.. ../include
+-  DEPEND[afalgtest]=../libcrypto
++  DEPEND[afalgtest]=../libgmcrypto
+ 
+   SOURCE[d2i_test]=d2i_test.c testutil.c
+   INCLUDE[d2i_test]=.. ../include
+-  DEPEND[d2i_test]=../libcrypto
++  DEPEND[d2i_test]=../libgmcrypto
+ 
+   SOURCE[ssl_test_ctx_test]=ssl_test_ctx_test.c ssl_test_ctx.c testutil.c
+   INCLUDE[ssl_test_ctx_test]=.. ../include
+-  DEPEND[ssl_test_ctx_test]=../libcrypto
++  DEPEND[ssl_test_ctx_test]=../libgmcrypto
+ 
+   SOURCE[ssl_test]=ssl_test.c ssl_test_ctx.c testutil.c handshake_helper.c
+   INCLUDE[ssl_test]=.. ../include
+-  DEPEND[ssl_test]=../libcrypto ../libssl
++  DEPEND[ssl_test]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[cipherlist_test]=cipherlist_test.c testutil.c
+   INCLUDE[cipherlist_test]=.. ../include
+-  DEPEND[cipherlist_test]=../libcrypto ../libssl
++  DEPEND[cipherlist_test]=../libgmcrypto ../libgmssl
+ 
+   INCLUDE[testutil.o]=..
+   INCLUDE[ssl_test_ctx.o]=../include
+@@ -262,127 +262,127 @@ IF[{- !$disabled{tests} -}]
+ 
+   SOURCE[x509aux]=x509aux.c
+   INCLUDE[x509aux]=../include
+-  DEPEND[x509aux]=../libcrypto
++  DEPEND[x509aux]=../libgmcrypto
+ 
+   SOURCE[asynciotest]=asynciotest.c ssltestlib.c
+   INCLUDE[asynciotest]=../include
+-  DEPEND[asynciotest]=../libcrypto ../libssl
++  DEPEND[asynciotest]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[bioprinttest]=bioprinttest.c
+   INCLUDE[bioprinttest]=../include
+-  DEPEND[bioprinttest]=../libcrypto
++  DEPEND[bioprinttest]=../libgmcrypto
+ 
+   SOURCE[sslapitest]=sslapitest.c ssltestlib.c testutil.c
+   INCLUDE[sslapitest]=../include ..
+-  DEPEND[sslapitest]=../libcrypto ../libssl
++  DEPEND[sslapitest]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[dtlstest]=dtlstest.c ssltestlib.c testutil.c
+   INCLUDE[dtlstest]=../include .
+-  DEPEND[dtlstest]=../libcrypto ../libssl
++  DEPEND[dtlstest]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[sslcorrupttest]=sslcorrupttest.c ssltestlib.c testutil.c
+   INCLUDE[sslcorrupttest]=../include .
+-  DEPEND[sslcorrupttest]=../libcrypto ../libssl
++  DEPEND[sslcorrupttest]=../libgmcrypto ../libgmssl
+ 
+   SOURCE[bio_enc_test]=bio_enc_test.c
+   INCLUDE[bio_enc_test]=../include
+-  DEPEND[bio_enc_test]=../libcrypto
++  DEPEND[bio_enc_test]=../libgmcrypto
+ 
+   SOURCE[sm3test]=sm3test.c
+   INCLUDE[sm3test]=../include
+-  DEPEND[sm3test]=../libcrypto
++  DEPEND[sm3test]=../libgmcrypto
+ 
+   SOURCE[sms4test]=sms4test.c
+   INCLUDE[sms4test]=../include
+-  DEPEND[sms4test]=../libcrypto
++  DEPEND[sms4test]=../libgmcrypto
+ 
+   SOURCE[kdf2test]=kdf2test.c
+   INCLUDE[kdf2test]=../include
+-  DEPEND[kdf2test]=../libcrypto
++  DEPEND[kdf2test]=../libgmcrypto
+ 
+   SOURCE[eciestest]=eciestest.c
+   INCLUDE[eciestest]=../include
+-  DEPEND[eciestest]=../libcrypto
++  DEPEND[eciestest]=../libgmcrypto
+ 
+   SOURCE[ffxtest]=ffxtest.c
+   INCLUDE[ffxtest]=../include
+-  DEPEND[ffxtest]=../libcrypto
++  DEPEND[ffxtest]=../libgmcrypto
+ 
+   SOURCE[sm2test]=sm2test.c
+   INCLUDE[sm2test]=../include
+-  DEPEND[sm2test]=../libcrypto
++  DEPEND[sm2test]=../libgmcrypto
+ 
+   SOURCE[pailliertest]=pailliertest.c
+   INCLUDE[pailliertest]=../include
+-  DEPEND[pailliertest]=../libcrypto
++  DEPEND[pailliertest]=../libgmcrypto
+ 
+   SOURCE[cpktest]=cpktest.c
+   INCLUDE[cpktest]=../include
+-  DEPEND[cpktest]=../libcrypto
++  DEPEND[cpktest]=../libgmcrypto
+ 
+   SOURCE[otptest]=otptest.c
+   INCLUDE[otptest]=../include
+-  DEPEND[otptest]=../libcrypto
++  DEPEND[otptest]=../libgmcrypto
+ 
+   SOURCE[gmapitest]=gmapitest.c
+   INCLUDE[gmapitest]=../include
+-  DEPEND[gmapitest]=../libcrypto
++  DEPEND[gmapitest]=../libgmcrypto
+ 
+   SOURCE[ec2test]=ec2test.c
+   INCLUDE[ec2test]=../include
+-  DEPEND[ec2test]=../libcrypto
++  DEPEND[ec2test]=../libgmcrypto
+ 
+   SOURCE[bfibetest]=bfibetest.c
+   INCLUDE[bfibetest]=../include
+-  DEPEND[bfibetest]=../libcrypto
++  DEPEND[bfibetest]=../libgmcrypto
+ 
+   SOURCE[bb1ibetest]=bb1ibetest.c
+   INCLUDE[bb1ibetest]=../include
+-  DEPEND[bb1ibetest]=../libcrypto
++  DEPEND[bb1ibetest]=../libgmcrypto
+ 
+   SOURCE[sm9test]=sm9test.c
+   INCLUDE[sm9test]=../include
+-  DEPEND[sm9test]=../libcrypto
++  DEPEND[sm9test]=../libgmcrypto
+ 
+   SOURCE[saftest]=saftest.c
+   INCLUDE[saftest]=../include
+-  DEPEND[saftest]=../libcrypto
++  DEPEND[saftest]=../libgmcrypto
+ 
+   SOURCE[sdftest]=sdftest.c
+   INCLUDE[sdftest]=../include
+-  DEPEND[sdftest]=../libcrypto
++  DEPEND[sdftest]=../libgmcrypto
+ 
+   SOURCE[skftest]=skftest.c
+   INCLUDE[skftest]=../include
+-  DEPEND[skftest]=../libcrypto
++  DEPEND[skftest]=../libgmcrypto
+ 
+   SOURCE[softest]=softest.c
+   INCLUDE[softest]=../include
+-  DEPEND[softest]=../libcrypto
++  DEPEND[softest]=../libgmcrypto
+ 
+   SOURCE[zuctest]=zuctest.c
+   INCLUDE[zuctest]=../include
+-  DEPEND[zuctest]=../libcrypto
++  DEPEND[zuctest]=../libgmcrypto
+ 
+   SOURCE[serpenttest]=serpenttest.c
+   INCLUDE[serpenttest]=../include
+-  DEPEND[serpenttest]=../libcrypto
++  DEPEND[serpenttest]=../libgmcrypto
+ 
+   SOURCE[specktest]=specktest.c
+   INCLUDE[specktest]=../include
+-  DEPEND[specktest]=../libcrypto
++  DEPEND[specktest]=../libgmcrypto
+ 
+   SOURCE[base58test]=base58test.c
+   INCLUDE[base58test]=../include
+-  DEPEND[base58test]=../libcrypto
++  DEPEND[base58test]=../libgmcrypto
+ 
+   SOURCE[ecrstest]=ecrstest.c
+   INCLUDE[ecrstest]=../include
+-  DEPEND[ecrstest]=../libcrypto
++  DEPEND[ecrstest]=../libgmcrypto
+ 
+   SOURCE[cv2x_benchmark]=cv2x_benchmark.c
+   INCLUDE[cv2x_benchmark]=../include ../crypto/include
+-  DEPEND[cv2x_benchmark]=../libcrypto
++  DEPEND[cv2x_benchmark]=../libgmcrypto
+ 
+   IF[{- !$disabled{shared} -}]
+     PROGRAMS_NO_INST=shlibloadtest
+@@ -412,7 +412,7 @@ ENDIF
+   GENERATE[buildtest_$name.c]=generate_buildtest.pl $name
+   SOURCE[buildtest_$name]=buildtest_$name.c
+   INCLUDE[buildtest_$name]=../include
+-  DEPEND[buildtest_$name]=../libssl ../libcrypto
++  DEPEND[buildtest_$name]=../libgmssl ../libgmcrypto
+ _____
+    }
+ -}
+diff -uprN gmssl-origin/util/mkdef.pl gmssl-modify/util/mkdef.pl
+--- gmssl-origin/util/mkdef.pl	2019-03-15 11:06:24.000000000 +0800
++++ gmssl-modify/util/mkdef.pl	2020-10-30 17:08:25.293642820 +0800
+@@ -174,13 +174,13 @@ foreach (@ARGV, split(/ /, $config{optio
+ 		$zlib = 1;
+ 	}
+ 
+-	$do_ssl=1 if $_ eq "libssl";
+-	if ($_ eq "ssl") {
++	$do_ssl=1 if $_ eq "libgmssl";
++	if ($_ eq "gmssl") {
+ 		$do_ssl=1; 
+ 		$libname=$_
+ 	}
+-	$do_crypto=1 if $_ eq "libcrypto";
+-	if ($_ eq "crypto") {
++	$do_crypto=1 if $_ eq "libgmcrypto";
++	if ($_ eq "gmcrypto") {
+ 		$do_crypto=1;
+ 		$libname=$_;
+ 	}

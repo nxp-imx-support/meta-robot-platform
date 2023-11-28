@@ -1,0 +1,27 @@
+From 4997dab531b1b0a9a2aa25a17f74610108e3a32a Mon Sep 17 00:00:00 2001
+From: nxa22940 <xiaodong.zhang@nxp.com>
+Date: Thu, 15 Jun 2023 13:06:23 +0800
+Subject: [PATCH] CMakeLists.txt: Intall head file into include without project
+ name
+
+Signed-off-by: nxa22940 <xiaodong.zhang@nxp.com>
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f8ca2367a..0fd557678 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -65,7 +65,7 @@ if(BUILD_TESTING)
+ endif()
+ 
+ install(TARGETS ${PROJECT_NAME} EXPORT export_${PROJECT_NAME})
+-install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
++install(DIRECTORY include/ DESTINATION include)
+ 
+ ament_export_targets(export_${PROJECT_NAME})
+ ament_export_dependencies(
+-- 
+2.35.1
+
